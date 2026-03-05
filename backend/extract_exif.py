@@ -13,41 +13,72 @@ from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
 import piexif
 import json
+from pillow_heif import register_heif_opener
+register_heif_opener() # Ensure HEIF support is registered with Pillow
 
 def extract_exif(image_path, output_json_path=None):
-    """Extract all EXIF metadata from an image file.
+    readable = {}
     
-    Converts numeric EXIF tag IDs to human-readable names and returns
-    all metadata as a dictionary. Optionally saves the data to a JSON file.
-    
-    Args:
-        image_path (str): Path to the image file
-        output_json_path (str): Optional path to save EXIF data as JSON
+    try:
+        image = Image.open(image_path)
         
-    Returns:
-        dict: Dictionary mapping EXIF tag names to their values
-    """
-    image = Image.open(image_path)
-    raw_exif = image._getexif()  # Returns a dict of tag_id -> value
+        # JPEG - full EXIF support
+        if image.format in ('JPEG', 'JPG'):
+            try:
+                exif_dict = piexif.load(str(image_path))
+                for ifd_name in ("0th", "Exif", "GPS", "1st"):
+                    ifd = exif_dict.get(ifd_name, {})
+                    for tag, value in ifd.items():
+                        tag_name = piexif.TAGS[ifd_name][tag]["name"]
+                        readable[tag_name] = serialize_for_json(value)
+            except Exception:
+                raw_exif = image._getexif()
+                if raw_exif:
+                    for tag_id, value in raw_exif.items():
+                        tag_name = TAGS.get(tag_id, tag_id)
+                        readable[tag_name] = serialize_for_json(value)
 
-    if not raw_exif:
-        readable = {}
-    else:
-        readable = {}
-        for tag_id, value in raw_exif.items():
-            tag_name = TAGS.get(tag_id, tag_id)  # Convert numeric ID → human name
-            readable[tag_name] = serialize_for_json(value)
+        # PNG - text chunks + XMP
+        elif image.format == 'PNG':
+            for key, value in image.info.items():
+                readable[key] = serialize_for_json(value)
 
-    # Save to JSON file if path provided
+        # TIFF - full EXIF support
+        elif image.format == 'TIFF':
+            exif_dict = piexif.load(str(image_path))
+            for ifd_name in ("0th", "Exif", "GPS", "1st"):
+                ifd = exif_dict.get(ifd_name, {})
+                for tag, value in ifd.items():
+                    tag_name = piexif.TAGS[ifd_name][tag]["name"]
+                    readable[tag_name] = serialize_for_json(value)
+
+        # HEIC/HEIF, WEBP, BMP, GIF - fallback
+        else:
+            # Try PIL EXIF first
+            raw_exif = image.getexif()
+            if raw_exif:
+                for tag_id, value in raw_exif.items():
+                    tag_name = TAGS.get(tag_id, tag_id)
+                    readable[tag_name] = serialize_for_json(value)
+            # Also grab any info dict metadata
+            if image.info:
+                for key, value in image.info.items():
+                    if key not in readable:
+                        readable[key] = serialize_for_json(value)
+
+    except Exception as e:
+        print(f"⚠ Extraction failed: {e}")
+
+    # Save to JSON if path provided
     if output_json_path:
         output_data = {
-            "image_path": image_path,
+            "image_path": str(image_path),
             "total_tags": len(readable),
             "exif_data": readable
         }
-        with open(output_json_path, 'w', encoding='utf-8') as f:
+        with open(str(output_json_path), 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
-        print(f"EXIF data saved to: {output_json_path}")
+        print(f"✓ EXIF JSON saved to: {output_json_path}")
 
     return readable
 
@@ -118,13 +149,16 @@ def decode_gps_coords(gps):
         seconds  = dms[2][0] / dms[2][1] / 3600
         return degrees + minutes + seconds
 
-    lat = to_decimal(gps["GPSLatitude"])
-    lon = to_decimal(gps["GPSLongitude"])
+    try:
+        lat = to_decimal(gps["GPSLatitude"])
+        lon = to_decimal(gps["GPSLongitude"])
 
-    if gps.get("GPSLatitudeRef")  == "S": lat = -lat
-    if gps.get("GPSLongitudeRef") == "W": lon = -lon
+        if gps.get("GPSLatitudeRef")  == "S": lat = -lat
+        if gps.get("GPSLongitudeRef") == "W": lon = -lon
 
-    return {"lat": lat, "lon": lon}
+        return {"lat": lat, "lon": lon}
+    except (KeyError, TypeError, ZeroDivisionError):
+        return None
 
 def analyze_image(path):
     """Complete image analysis: extract camera info, GPS location, and timeline data.
@@ -150,11 +184,8 @@ def analyze_image(path):
         "raw_exif":     exif      # keep everything for deeper analysis
     }
 
-# Usage
-data = analyze_image("photo.jpg")
-print(data["gps"])        # {'lat': 40.7128, 'lon': -74.0060}
-print(data["camera_model"])  # 'iPhone 15 Pro'
-
-
 # Example usage:
+# data = analyze_image("photo.jpg")
+# print(data["gps"])        # {'lat': 40.7128, 'lon': -74.0060}
+# print(data["camera_model"])  # 'iPhone 15 Pro'
 # extract_exif("photo.jpg", "photo_exif.json")
