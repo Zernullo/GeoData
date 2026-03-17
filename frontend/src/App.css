@@ -1,42 +1,410 @@
+/**
+ * @fileoverview Component-level styles and animations for GeoData UI.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;800&display=swap');
+@import "tailwindcss";
+
+/* ============================================================ */
+/* CSS Variables (Design Tokens) */
+/* ============================================================ */
+
+:root {
+  /* Colors */
+  --bg: #07080f;
+  --surface: #0d0f1a;
+  --surface2: #12152b;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-accent: rgba(0, 255, 163, 0.25);
+  --green: #00ffa3;
+  --green-dim: rgba(0, 255, 163, 0.12);
+  --green-glow: rgba(0, 255, 163, 0.06);
+  --amber: #f5a623;
+  --red: #ff4d6d;
+  --text: #e8eaf2;
+  --muted: rgba(232, 234, 242, 0.4);
+
+  /* Typography */
+  --mono: 'Space Mono', monospace;
+  --display: 'Syne', sans-serif;
+}
+
+/* Light theme variables */
+[data-theme="light"] {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface2: #eef0f5;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-accent: rgba(0, 255, 163, 0.5);
+  --green: #00cc82;
+  --green-dim: rgba(0, 204, 130, 0.1);
+  --green-glow: rgba(0, 204, 130, 0.05);
+  --amber: #e68a2e;
+  --red: #dc3545;
+  --text: #1a1e2b;
+  --muted: rgba(26, 30, 43, 0.5);
+}
+
+/* ============================================================ */
+/* Base Styles */
+/* ============================================================ */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.015) 39px, rgba(255,255,255,0.015) 40px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
 #root {
-  max-width: 1280px;
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  padding: 2rem 1.5rem 4rem;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* ============================================================ */
+/* Animations */
+/* ============================================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-@keyframes logo-spin {
+@keyframes fadeUp {
   from {
-    transform: rotate(0deg);
+    opacity: 0;
+    transform: translateY(20px);
   }
   to {
-    transform: rotate(360deg);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+@keyframes fadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px var(--green); }
+  50% { box-shadow: 0 0 20px var(--green); }
+}
+
+/* Animation Classes */
+.animate-fadeIn { animation: fadeIn 0.5s ease forwards; }
+.animate-fadeUp { animation: fadeUp 0.5s ease forwards; }
+.animate-fadeDown { animation: fadeDown 0.5s ease forwards; }
+.animate-slideIn { animation: slideIn 0.3s ease forwards; }
+.animate-slideUp { animation: slideUp 0.3s ease forwards; }
+.animate-slideDown { animation: slideDown 0.3s ease forwards; }
+.animate-blink { animation: blink 1s step-end infinite; }
+.animate-pulse { animation: pulse 2s ease-in-out infinite; }
+.animate-shake { animation: shake 0.5s ease-in-out; }
+.animate-glow { animation: glow 2s ease-in-out infinite; }
+
+/* Delay utilities */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+
+/* ============================================================ */
+/* Card/Panel Utilities */
+/* ============================================================ */
 
 .card {
-  padding: 2em;
+  border: 1px solid;
+  border-color: var(--border);
+  border-radius: 2px;
+  transition: all 200ms;
+  background: var(--surface);
 }
 
-.read-the-docs {
-  color: #888;
+.card:hover {
+  border-color: var(--border-accent);
+  box-shadow: 0 4px 20px rgba(0, 255, 163, 0.1);
+}
+
+.card-accent {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 30px var(--green-glow);
+}
+
+/* ============================================================ */
+/* Typography */
+/* ============================================================ */
+
+.header-primary {
+  font-family: var(--display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 1;
+  color: var(--green);
+  text-shadow: 0 0 10px var(--green-glow);
+}
+
+.header-secondary {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+}
+
+.label-text {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ============================================================ */
+/* Button Utilities */
+/* ============================================================ */
+
+.btn-tab {
+  flex: 1;
+  padding: 0.75rem 0;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 200ms;
+}
+
+.btn-tab:hover {
+  color: var(--green);
+  border-bottom-color: var(--green-dim);
+}
+
+.btn-tab-active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.btn-tab-inactive {
+  color: var(--muted);
+  border-bottom-color: transparent;
+}
+
+/* ============================================================ */
+/* Status Indicators */
+/* ============================================================ */
+
+.status-high { color: var(--red); }
+.status-medium { color: var(--amber); }
+.status-low { color: var(--green); }
+
+.status-badge {
+  font-size: 0.7rem;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid;
+  border-radius: 2px;
+  border-color: currentColor;
+  opacity: 0.5;
+}
+
+/* ============================================================ */
+/* Scrollbar Styling */
+/* ============================================================ */
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: var(--surface2);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--green);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--green-dim);
+}
+
+/* ============================================================ */
+/* Cursor Effect */
+/* ============================================================ */
+
+.cursor::after {
+  content: '█';
+  animation: blink 1s step-end infinite;
+  color: var(--green);
+  font-size: 0.8em;
+  margin-left: 2px;
+}
+
+/* ============================================================ */
+/* Utility Classes */
+/* ============================================================ */
+
+.shadow-glow {
+  box-shadow: 0 0 20px var(--green-glow);
+}
+
+.shadow-glow:hover {
+  box-shadow: 0 0 30px var(--green-glow);
+}
+
+.text-shadow {
+  text-shadow: 0 0 10px currentColor;
+}
+
+.gradient-border {
+  position: relative;
+  border: 1px solid transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+              linear-gradient(135deg, var(--green), transparent) border-box;
+}
+
+/* ============================================================ */
+/* Responsive Utilities */
+/* ============================================================ */
+
+@media (max-width: 768px) {
+  #root {
+    padding: 1rem 1rem 2rem;
+  }
+  
+  .header-primary {
+    font-size: 2rem;
+  }
+  
+  .card {
+    border-radius: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid-cols-\[1fr_300px\] {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================================ */
+/* Focus States */
+/* ============================================================ */
+
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--green);
+  color: var(--bg);
+}
+
+/* ============================================================ */
+/* Loading States */
+/* ============================================================ */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface2) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

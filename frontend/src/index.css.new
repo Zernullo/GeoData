@@ -1,0 +1,142 @@
+/**
+ * @fileoverview Global stylesheet for GeoData frontend.
+ * 
+ * Provides:
+ * - Tailwind CSS framework and directives
+ * - CSS custom properties (color palette, fonts)
+ * - Dark theme configuration
+ * - Accessibility and font rendering optimizations
+ * - Normal form resets
+ */
+
+@import "tailwindcss";
+
+/**
+ * CSS Custom Properties (Design Tokens)
+ * Used throughout components via var(--property-name)
+ */
+:root {
+  /* Color Palette */
+  --bg: #07080f;                             /* Main background */
+  --surface: #0d0f1a;                        /* Card/panel backgrounds */
+  --surface2: #12152b;                       /* Secondary surface */
+  --text: #e8eaf2;                           /* Primary text */
+  --muted: rgba(232, 234, 242, 0.4);         /* Secondary text */
+  --green: #00ffa3;                          /* Primary accent - success, links */
+  --green-dim: rgba(0, 255, 163, 0.12);      /* Green with low opacity for backgrounds */
+  --green-glow: rgba(0, 255, 163, 0.06);     /* Very faint green for subtle effects */
+  --amber: #f5a623;                          /* Warning color */
+  --red: #ff4d6d;                            /* Danger/error color */
+  --border: rgba(255, 255, 255, 0.06);       /* Border color */
+  --border-accent: rgba(0, 255, 163, 0.25);  /* Highlighted border */
+
+  /* Typography */
+  --mono: 'Space Mono', monospace;            /* Monospace for code/terminals */
+  --display: 'Syne', sans-serif;              /* Display font for headings */
+
+  /* Default text rendering */
+  color-scheme: dark;
+  font-family: var(--mono);
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/**
+ * Global element resets
+ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/**
+ * Body styling
+ * - Dark background
+ * - Cyber aesthetic with grid overlay
+ * - Scanline effect for CRT monitor feel
+ */
+body {
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/**
+ * Grid background pattern
+ * Creates subtle grid lines across entire viewport using pseudo-elements
+ * Repeats every 40px in both X and Y directions
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255, 255, 255, 0.015) 39px, rgba(255, 255, 255, 0.015) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255, 255, 255, 0.015) 39px, rgba(255, 255, 255, 0.015) 40px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/**
+ * Scanline effect (CRT monitor effect)
+ * Horizontal lines with slight opacity to simulate old CRT display
+ */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0, 0, 0, 0.08) 2px,
+    rgba(0, 0, 0, 0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/**
+ * Root container for React
+ * - Z-index above background effects
+ * - Full height with padding
+ * - Max-width constraint for large screens
+ * - Centered container
+ */
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  padding: 2rem 1.5rem 4rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/**
+ * Accessibility: Remove default focus outline and use custom
+ */
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+/**
+ * Selection styling - Terminal green on dark background
+ */
+::selection {
+  background: var(--green);
+  color: var(--bg);
+}
