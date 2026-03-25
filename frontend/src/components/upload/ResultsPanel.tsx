@@ -5,6 +5,7 @@ interface ResultsPanelProps {
   result: ExifData;
   llmAnalysis?: string | null;
   onDownload: () => void;
+  file?: File | null;
 }
 
 const SENSITIVE_FIELDS = [
@@ -29,13 +30,9 @@ function riskScore(exif: ExifData): { score: number; level: string; color: strin
 
 function groupExifData(exif: ExifData): Record<string, Record<string, unknown>> {
   const groups: Record<string, Record<string, unknown>> = {
-    Camera: {},
-    GPS: {},
-    Timestamps: {},
-    Image: {},
-    Other: {}
+    Camera: {}, GPS: {}, Timestamps: {}, Image: {}, Other: {}
   };
-  
+
   Object.entries(exif).forEach(([key, value]) => {
     if (key.includes('GPS') || key.includes('Latitude') || key.includes('Longitude')) {
       groups.GPS[key] = value;
@@ -49,72 +46,80 @@ function groupExifData(exif: ExifData): Record<string, Record<string, unknown>> 
       groups.Other[key] = value;
     }
   });
-  
+
   Object.keys(groups).forEach(key => {
-    if (Object.keys(groups[key]).length === 0) {
-      delete groups[key];
-    }
+    if (Object.keys(groups[key]).length === 0) delete groups[key];
   });
-  
+
   return groups;
 }
 
-export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelProps) {
-  type TabType = 'overview' | 'raw' | 'grouped' | 'llm';
+type TabType = 'overview' | 'raw' | 'grouped' | 'llm';
+
+export function ResultsPanel({ result, llmAnalysis, onDownload, file }: ResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [sanitizing, setSanitizing] = useState(false);
+
   const risk = riskScore(result);
   const sensitiveKeys = Object.keys(result).filter(k => SENSITIVE_FIELDS.includes(k));
   const groupedData = groupExifData(result);
 
+  const handleSanitize = async () => {
+    if (!file) return;
+    setSanitizing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('http://localhost:8000/api/sanitize-image', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Sanitization failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sanitized-${file.name}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to sanitize image.');
+    } finally {
+      setSanitizing(false);
+    }
+  };
+
+  const tabs = (['overview', 'grouped', 'raw', llmAnalysis ? 'llm' : null].filter(Boolean) as TabType[]);
+
   return (
     <div style={{ border: '1px solid var(--border-accent)', borderRadius: '4px', overflow: 'hidden' }}>
+
       {/* Risk Banner */}
       <div style={{
-        background: `${risk.color}15`,
-        borderBottom: `1px solid ${risk.color}40`,
-        padding: '1rem 1.5rem',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: `${risk.color}15`, borderBottom: `1px solid ${risk.color}40`,
+        padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div>
-          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.15em', marginBottom: '0.25rem' }}>
-            PRIVACY RISK
-          </p>
-          <p style={{ color: risk.color, fontFamily: 'var(--display)', fontSize: '1.5rem', fontWeight: 800 }}>
-            {risk.level}
-          </p>
+          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.15em', marginBottom: '0.25rem' }}>PRIVACY RISK</p>
+          <p style={{ color: risk.color, fontFamily: 'var(--display)', fontSize: '1.5rem', fontWeight: 800 }}>{risk.level}</p>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>
-            SCORE
-          </p>
-          <div style={{
-            width: '80px', height: '6px', background: 'var(--border)',
-            borderRadius: '3px', overflow: 'hidden',
-          }}>
-            <div style={{
-              width: `${risk.score}%`, height: '100%',
-              background: risk.color, transition: 'width 0.6s ease',
-            }} />
+          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>SCORE</p>
+          <div style={{ width: '80px', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+            <div style={{ width: `${risk.score}%`, height: '100%', background: risk.color, transition: 'width 0.6s ease' }} />
           </div>
           <p style={{ color: risk.color, fontSize: '0.7rem', marginTop: '0.4rem' }}>{risk.score}/100</p>
         </div>
       </div>
 
       {/* Quick Stats */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
-        borderBottom: '1px solid var(--border)',
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)' }}>
         {[
           { label: 'TOTAL TAGS', value: Object.keys(result).length },
           { label: 'SENSITIVE', value: sensitiveKeys.length },
           { label: 'GPS DATA', value: result.GPSLatitude ? 'YES' : 'NO' },
         ].map((stat, i) => (
-          <div key={i} style={{
-            padding: '1rem',
-            borderRight: i < 2 ? '1px solid var(--border)' : 'none',
-            textAlign: 'center',
-          }}>
+          <div key={i} style={{ padding: '1rem', borderRight: i < 2 ? '1px solid var(--border)' : 'none', textAlign: 'center' }}>
             <p style={{ color: 'var(--muted)', fontSize: '0.6rem', letterSpacing: '0.12em', marginBottom: '0.4rem' }}>{stat.label}</p>
             <p style={{
               fontFamily: 'var(--display)', fontSize: '1.4rem', fontWeight: 700,
@@ -126,11 +131,10 @@ export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelPr
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-        {(['overview', 'grouped', 'raw', llmAnalysis ? 'llm' : null].filter(Boolean) as TabType[]).map(tab => (
+        {tabs.map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
-            flex: 1, padding: '0.75rem',
-            fontFamily: 'var(--mono)', fontSize: '0.65rem', letterSpacing: '0.15em',
-            color: activeTab === tab ? 'var(--green)' : 'var(--muted)',
+            flex: 1, padding: '0.75rem', fontFamily: 'var(--mono)', fontSize: '0.65rem',
+            letterSpacing: '0.15em', color: activeTab === tab ? 'var(--green)' : 'var(--muted)',
             background: 'transparent', border: 'none', cursor: 'pointer',
             borderBottom: activeTab === tab ? '2px solid var(--green)' : '2px solid transparent',
           }}>
@@ -141,11 +145,7 @@ export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelPr
 
       {/* Tab Content */}
       <div style={{ padding: '1.5rem', maxHeight: '400px', overflowY: 'auto' }}>
-        {activeTab === 'llm' && llmAnalysis && (
-          <div style={{ color: 'var(--text)', fontSize: '1rem', whiteSpace: 'pre-line', fontFamily: 'var(--mono)' }}>
-            {llmAnalysis}
-          </div>
-        )}
+
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {[
@@ -191,24 +191,26 @@ export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelPr
         )}
 
         {activeTab === 'raw' && (
-          <div style={{
-            background: 'var(--surface2)', borderRadius: '4px', padding: '1rem',
-            maxHeight: '320px', overflowY: 'auto',
-          }}>
+          <div style={{ background: 'var(--surface2)', borderRadius: '4px', padding: '1rem' }}>
             {Object.entries(result).map(([k, v]) => (
               <div key={k} style={{
                 display: 'flex', gap: '1rem', padding: '0.35rem 0',
                 borderBottom: '1px solid var(--border)', fontSize: '0.7rem',
               }}>
-                <span style={{
-                  color: 'var(--green)', minWidth: '160px', flexShrink: 0,
-                  opacity: SENSITIVE_FIELDS.includes(k) ? 1 : 0.6,
-                }}>{k}</span>
+                <span style={{ color: 'var(--green)', minWidth: '160px', flexShrink: 0, opacity: SENSITIVE_FIELDS.includes(k) ? 1 : 0.6 }}>
+                  {k}
+                </span>
                 <span style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
                   {typeof v === 'object' ? JSON.stringify(v) : String(v).slice(0, 80)}
                 </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {activeTab === 'llm' && llmAnalysis && (
+          <div style={{ color: 'var(--text)', fontSize: '0.8rem', whiteSpace: 'pre-line', fontFamily: 'var(--mono)', lineHeight: 1.8 }}>
+            {llmAnalysis}
           </div>
         )}
       </div>
@@ -227,26 +229,37 @@ export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelPr
               <span key={k} style={{
                 background: 'rgba(255,77,109,0.1)', border: '1px solid rgba(255,77,109,0.3)',
                 color: '#ff4d6d', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '2px',
-                fontFamily: 'var(--mono)',
               }}>{k}</span>
             ))}
           </div>
         </div>
       )}
 
-      <div style={{ padding: '0 1.5rem 1.5rem' }}>
+      {/* Action Buttons */}
+      <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <button onClick={onDownload} style={{
-          width: '100%', background: 'transparent',
-          border: '1px solid var(--border)', color: 'var(--muted)',
-          padding: '0.65rem', fontFamily: 'var(--mono)', fontSize: '0.7rem',
-          letterSpacing: '0.15em', cursor: 'pointer', borderRadius: '4px',
-          transition: 'all 0.2s',
+          width: '100%', background: 'transparent', border: '1px solid var(--border)',
+          color: 'var(--green)', padding: '0.65rem', fontFamily: 'var(--mono)',
+          fontSize: '0.7rem', letterSpacing: '0.15em', cursor: 'pointer', borderRadius: '4px', fontWeight: 700,
         }}
           onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--green)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
-          onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.target as HTMLButtonElement).style.color = 'var(--muted)'; }}
+          onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
         >
           [ EXPORT JSON ]
         </button>
+        {file && (
+          <button onClick={handleSanitize} disabled={sanitizing} style={{
+            width: '100%', background: 'transparent', border: '1px solid var(--border)', color: 'var(--green)',
+            padding: '0.65rem', fontFamily: 'var(--mono)', fontSize: '0.7rem',
+            letterSpacing: '0.15em', cursor: sanitizing ? 'not-allowed' : 'pointer',
+            borderRadius: '4px', opacity: sanitizing ? 0.6 : 1, fontWeight: 700,
+          }}
+          onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--green)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
+          onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
+          >
+            {sanitizing ? '[ SANITIZING... ]' : '[ SANITIZE & DOWNLOAD ]'}
+          </button>
+        )}
       </div>
     </div>
   );

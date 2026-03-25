@@ -273,7 +273,7 @@ export default function ImageUploader() {
 
           {result && (
             <div className="fade-up">
-              <ResultsPanel result={result} llmAnalysis={llmAnalysis} onDownload={downloadJSON} />
+              <ResultsPanel result={result} llmAnalysis={llmAnalysis} onDownload={downloadJSON} file={file} />
             </div>
           )}
         </div>

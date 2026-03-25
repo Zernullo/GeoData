@@ -8,6 +8,7 @@ Endpoints:
   - GET  /                    - Health check
   - POST /api/extract-exif    - Upload image and get analyzed EXIF data
   - POST /api/extract-exif-json - Upload image and get full EXIF data as JSON
+  - GET  /api/sanitize        - Sanitize image file
 
 Features:
   - CORS enabled for frontend access (localhost:5173, localhost:3000)
@@ -27,6 +28,7 @@ import json
 import os
 from pathlib import Path
 from local_LLM import analyze_exif_with_llm
+from sanitize_image import router as sanitize_router
 
 app = FastAPI(title="GeoData API", version="1.0.0")
 
@@ -213,6 +215,8 @@ async def extract_exif_json_endpoint(file: UploadFile = File(...), output_filena
             "success": False,
             "error": str(e)
         }
+
+app.include_router(sanitize_router, prefix="/api")
 
 if __name__ == "__main__":
     # Run the FastAPI server directly (for development)
