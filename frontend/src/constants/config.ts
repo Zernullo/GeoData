@@ -9,7 +9,7 @@ export const API_ENDPOINTS = {
 export const RETRY_CONFIG = {
   maxRetries: 3,
   retryDelay: 1000, // ms
-  timeout: 30000, // 30 seconds
+  timeout: 120000, // 120 seconds (2 minutes)
 } as const;
 
 export const FILE_LIMITS = {

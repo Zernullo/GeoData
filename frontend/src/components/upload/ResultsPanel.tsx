@@ -3,6 +3,7 @@ import type { ExifData } from '../../types/exif';
 
 interface ResultsPanelProps {
   result: ExifData;
+  llmAnalysis?: string | null;
   onDownload: () => void;
 }
 
@@ -58,8 +59,9 @@ function groupExifData(exif: ExifData): Record<string, Record<string, unknown>> 
   return groups;
 }
 
-export function ResultsPanel({ result, onDownload }: ResultsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'raw' | 'grouped'>('overview');
+export function ResultsPanel({ result, llmAnalysis, onDownload }: ResultsPanelProps) {
+  type TabType = 'overview' | 'raw' | 'grouped' | 'llm';
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
   const risk = riskScore(result);
   const sensitiveKeys = Object.keys(result).filter(k => SENSITIVE_FIELDS.includes(k));
   const groupedData = groupExifData(result);
@@ -124,7 +126,7 @@ export function ResultsPanel({ result, onDownload }: ResultsPanelProps) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-        {(['overview', 'grouped', 'raw'] as const).map(tab => (
+        {(['overview', 'grouped', 'raw', llmAnalysis ? 'llm' : null].filter(Boolean) as TabType[]).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             flex: 1, padding: '0.75rem',
             fontFamily: 'var(--mono)', fontSize: '0.65rem', letterSpacing: '0.15em',
@@ -139,13 +141,18 @@ export function ResultsPanel({ result, onDownload }: ResultsPanelProps) {
 
       {/* Tab Content */}
       <div style={{ padding: '1.5rem', maxHeight: '400px', overflowY: 'auto' }}>
+        {activeTab === 'llm' && llmAnalysis && (
+          <div style={{ color: 'var(--text)', fontSize: '1rem', whiteSpace: 'pre-line', fontFamily: 'var(--mono)' }}>
+            {llmAnalysis}
+          </div>
+        )}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {[
               { label: 'Camera', value: [result.Make, result.Model].filter(Boolean).join(' ') },
               { label: 'Captured', value: result.DateTimeOriginal || result.DateTime },
               { label: 'Software', value: result.Software },
-              { label: 'Resolution', value: result.PixelXDimension ? `${result.PixelXDimension} × ${result.PixelYDimension}` : undefined },
+              { label: 'Resolution', value: result.PixelXDimension ? `${result.PixelXDimension} x ${result.PixelYDimension}` : undefined },
               { label: 'GPS Ref', value: result.GPSLatitudeRef ? `${result.GPSLatitudeRef} / ${result.GPSLongitudeRef}` : undefined },
             ].filter(r => r.value).map((row, i) => (
               <div key={i} style={{

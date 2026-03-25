@@ -2,7 +2,6 @@
  * @fileoverview Main orchestrator component for EXIF metadata extraction.
  * Manages file upload, API communication, state synchronization, and result display.
  */
-
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import type { ExifData } from '../types/exif';
 import '../App.css';
@@ -13,13 +12,14 @@ import { UploadZone } from './upload/UploadZone';
 import { ResultsPanel } from './upload/ResultsPanel';
 import { Sidebar } from './upload/Sidebar';
 import { MobileSidebar } from './upload/MobileSidebar';
-import { isExifData, compressPreview } from '../utils/imageUtils';
+import { compressPreview } from '../utils/imageUtils';
 import { RETRY_CONFIG, API_ENDPOINTS } from '../constants/config';
 
 export default function ImageUploader() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExifData | null>(null);
+  const [llmAnalysis, setLlmAnalysis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -60,6 +60,7 @@ export default function ImageUploader() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLlmAnalysis(null);
     addLog('Initiating extraction sequence...', 'info');
 
     try {
@@ -84,18 +85,17 @@ export default function ImageUploader() {
 
       const data = await response.json();
 
-      if (data.success && isExifData(data.data?.exif_data)) {
+      if (data.success && data.data?.exif_data) {
         const exifData = data.data.exif_data;
         setResult(exifData);
+        setLlmAnalysis(data.llm_analysis || null);
         const count = Object.keys(exifData).length;
         addLog(`Extraction complete — ${count} tags found`, 'success');
-        
         if (exifData.GPSLatitude) {
           addLog('⚠ GPS coordinates detected', 'warning');
         } else {
           addLog('No GPS data present', 'info');
         }
-
         const newUpload = {
           id: crypto.randomUUID(),
           timestamp: new Date().toISOString(),
@@ -104,7 +104,6 @@ export default function ImageUploader() {
           hasGPS: !!exifData.GPSLatitude,
           tagCount: count,
         };
-        
         setHistory(prev => [newUpload, ...prev].slice(0, 8));
         setRetryCount(0);
       } else {
@@ -274,7 +273,7 @@ export default function ImageUploader() {
 
           {result && (
             <div className="fade-up">
-              <ResultsPanel result={result} onDownload={downloadJSON} />
+              <ResultsPanel result={result} llmAnalysis={llmAnalysis} onDownload={downloadJSON} />
             </div>
           )}
         </div>

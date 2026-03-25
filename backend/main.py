@@ -26,6 +26,7 @@ from extract_exif import extract_exif, analyze_image
 import json
 import os
 from pathlib import Path
+from local_LLM import analyze_exif_with_llm
 
 app = FastAPI(title="GeoData API", version="1.0.0")
 
@@ -168,14 +169,42 @@ async def extract_exif_json_endpoint(file: UploadFile = File(...), output_filena
         with open(str(json_output_path), 'r') as f:
             json_data = json.load(f)
         print(f"📄 JSON file read successfully")
-        
-        # Return successful response with JSON data
+
+
+        # Truncate EXIF data to avoid LLM context overflow
+        def truncate_exif_data(exif_dict, max_fields=20):
+            # Prioritize most sensitive/important fields
+            priority_keys = [
+                'Make', 'Model', 'DateTime', 'DateTimeOriginal', 'Software',
+                'GPSLatitude', 'GPSLongitude', 'GPSLatitudeRef', 'GPSLongitudeRef',
+                'GPSAltitude', 'GPSTimestamp', 'GPSDateStamp', 'SerialNumber',
+                'LensSerialNumber', 'PixelXDimension', 'PixelYDimension',
+                'ExposureTime', 'FNumber', 'ISOSpeedRatings', 'FocalLength', 'Flash'
+            ]
+            result = {}
+            for key in priority_keys:
+                if key in exif_dict:
+                    result[key] = exif_dict[key]
+            # If not enough, fill with other fields
+            if len(result) < max_fields:
+                for k in exif_dict:
+                    if k not in result:
+                        result[k] = exif_dict[k]
+                        if len(result) >= max_fields:
+                            break
+            return result
+
+        truncated_exif = truncate_exif_data(json_data["exif_data"], max_fields=20)
+        llm_analysis = analyze_exif_with_llm(truncated_exif)
+
+        # Return successful response with JSON data and LLM analysis
         return {
             "success": True,
             "filename": file.filename,
             "json_file": output_filename,
             "json_path": str(json_output_path),
-            "data": json_data
+            "data": json_data,
+            "llm_analysis": llm_analysis
         }
     except Exception as e:
         print(f"❌ Error: {str(e)}")
