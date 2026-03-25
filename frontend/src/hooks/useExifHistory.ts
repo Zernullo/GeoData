@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Upload } from '../types/exif';
 
 const STORAGE_KEY = 'geodata_history';
-const MAX_HISTORY = 8;
+const MAX_HISTORY = 20;
 
 /**
  * Hook for managing EXIF upload history with localStorage persistence.

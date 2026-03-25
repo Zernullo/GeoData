@@ -3,8 +3,8 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { LogEntry } from '../hooks/useTerminalLog';
-import type { Upload } from '../types/exif';
+import type { LogEntry } from '../../hooks/useTerminalLog';
+import type { Upload } from '../../types/exif';
 import { Sidebar } from './Sidebar';
 
 interface MobileSidebarProps {

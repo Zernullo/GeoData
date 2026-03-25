@@ -3,8 +3,8 @@
  */
 
 import { useRef, useEffect } from 'react';
-import type { LogEntry } from '../hooks/useTerminalLog';
-import type { Upload } from '../types/exif';
+import type { LogEntry } from '../../hooks/useTerminalLog';
+import type { Upload } from '../../types/exif';
 
 interface SidebarProps {
   logs: LogEntry[];
@@ -87,7 +87,7 @@ export function Sidebar({ logs, history, onClearLogs, onClearHistory }: SidebarP
         <div className="p-3 border-b border-dark-border flex justify-between items-center">
           <p className="label-text">SCAN HISTORY</p>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted">{history.length}/8</span>
+            <span className="text-xs text-muted">{history.length}/20</span>
             {onClearHistory && history.length > 0 && (
               <button
                 onClick={onClearHistory}

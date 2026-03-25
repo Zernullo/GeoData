@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { ExifData } from '../../types/exif';
 
 interface ResultsPanelProps {

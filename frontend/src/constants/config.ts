@@ -19,6 +19,6 @@ export const FILE_LIMITS = {
 
 export const UI_CONFIG = {
   maxLogEntries: 50,
-  maxHistoryItems: 8,
+  maxHistoryItems: 20,
   previewMaxSize: 200, // pixels
 } as const;
