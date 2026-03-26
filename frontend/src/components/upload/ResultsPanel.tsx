@@ -89,7 +89,7 @@ export function ResultsPanel({ result, llmAnalysis, onDownload, file }: ResultsP
     }
   };
 
-  const tabs = (['overview', 'grouped', 'raw', llmAnalysis ? 'llm' : null].filter(Boolean) as TabType[]);
+  const tabs = (['overview', 'grouped', 'raw', 'llm'] as TabType[]);
 
   return (
     <div style={{ border: '1px solid var(--border-accent)', borderRadius: '4px', overflow: 'hidden' }}>
@@ -208,9 +208,11 @@ export function ResultsPanel({ result, llmAnalysis, onDownload, file }: ResultsP
           </div>
         )}
 
-        {activeTab === 'llm' && llmAnalysis && (
+        {activeTab === 'llm' && (
           <div style={{ color: 'var(--text)', fontSize: '0.8rem', whiteSpace: 'pre-line', fontFamily: 'var(--mono)', lineHeight: 1.8 }}>
-            {llmAnalysis}
+            {llmAnalysis && llmAnalysis.trim().length > 0
+              ? llmAnalysis
+              : <span style={{ color: 'var(--muted)' }}>No LLM analysis available for this image.</span>}
           </div>
         )}
       </div>
