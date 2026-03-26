@@ -196,7 +196,7 @@ async def extract_exif_json_endpoint(file: UploadFile = File(...), output_filena
                             break
             return result
 
-        truncated_exif = truncate_exif_data(json_data["exif_data"], max_fields=20)
+        truncated_exif = truncate_exif_data(json_data["exif_data"], max_fields=10)
         llm_analysis = analyze_exif_with_llm(truncated_exif)
 
         # Return successful response with JSON data and LLM analysis
