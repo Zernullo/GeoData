@@ -16,7 +16,7 @@ def analyze_exif_with_llm(exif_json: dict) -> str:
     """
     prompt = (
         "You are a privacy expert. Given this EXIF JSON, briefly list only the most critical privacy risks and sensitive information. Be concise.\n"
-        "If there are no risks, say 'No significant privacy risks detected.'\n\n"
+        "If there are no data, say 'No significant privacy risks detected.'\n\n"
         f"EXIF JSON: {exif_json}\n"
         "Brief Analysis:"
     )
