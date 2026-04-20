@@ -1,72 +1,194 @@
 /**
- * @fileoverview Main orchestrator component for EXIF metadata extraction.
- * Manages file upload, API communication, state synchronization, and result display.
+ * Main orchestrator component for GeoData.
  */
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import type { ExifData } from '../types/exif';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import '../App.css';
+import { API_ENDPOINTS, RETRY_CONFIG, UI_CONFIG } from '../constants/config';
 import { useExifHistory } from '../hooks/useExifHistory';
 import { useTerminalLog } from '../hooks/useTerminalLog';
+import type {
+  AnalyzeExifResponse,
+  ExifData,
+  ExtractExifJsonResponse,
+  LlmAnalysis,
+  LlmHealthResponse,
+  PipelineMeta,
+} from '../types/exif';
+import { compressPreview, validateImageFile } from '../utils/imageUtils';
 import { Header } from './upload/Header';
-import { UploadZone } from './upload/UploadZone';
+import { MobileSidebar } from './upload/MobileSidebar';
 import { ResultsPanel } from './upload/ResultsPanel';
 import { Sidebar } from './upload/Sidebar';
-import { MobileSidebar } from './upload/MobileSidebar';
-import { compressPreview } from '../utils/imageUtils';
-import { RETRY_CONFIG, API_ENDPOINTS } from '../constants/config';
+import { UploadZone } from './upload/UploadZone';
 
 export default function ImageUploader() {
   const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [result, setResult] = useState<ExifData | null>(null);
-  const [llmAnalysis, setLlmAnalysis] = useState<string | null>(null);
+  const [llmAnalysis, setLlmAnalysis] = useState<LlmAnalysis | null>(null);
+  const [llmHealth, setLlmHealth] = useState<LlmHealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  
-  const { history, setHistory, clearHistory } = useExifHistory();
-  const { logs, addLog, clearLogs } = useTerminalLog();
+  const [pipeline, setPipeline] = useState<PipelineMeta | null>(null);
+
+  const { history, addToHistory, clearHistory } = useExifHistory();
+  const { logs, addLog, clearLogs } = useTerminalLog(UI_CONFIG.maxLogEntries);
   const inputRef = useRef<HTMLInputElement>(null);
+  const activeScanIdRef = useRef(0);
 
+  useEffect(() => {
+    let active = true;
 
-  // Download JSON callback
+    const loadHealth = async () => {
+      try {
+        const response = await fetch(API_ENDPOINTS.llmHealth);
+        if (!response.ok) {
+          throw new Error(`Health check failed with HTTP ${response.status}`);
+        }
+
+        const payload: LlmHealthResponse = await response.json();
+        if (!active) return;
+
+        setLlmHealth(payload);
+        addLog(
+          payload.available
+            ? `Local model detected: ${payload.model}`
+            : `Configured model not ready yet: ${payload.model}`,
+          payload.available ? 'success' : 'warning',
+        );
+      } catch (healthError) {
+        if (!active) return;
+
+        addLog(
+          `AI health check unavailable: ${healthError instanceof Error ? healthError.message : 'Unknown error'}`,
+          'warning',
+        );
+      }
+    };
+
+    void loadHealth();
+
+    return () => {
+      active = false;
+    };
+  }, [addLog]);
+
   const downloadJSON = useCallback(() => {
     if (!result) return;
-    
-    try {
-      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `exif-${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      addLog('JSON export completed', 'success');
-    } catch (err) {
-      addLog(`Export failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
-    }
-  }, [result, addLog]);
 
-  // Handle file upload callback
+    try {
+      const exportPayload = {
+        exported_at: new Date().toISOString(),
+        metadata: result,
+        analysis: llmAnalysis,
+      };
+
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `geodata-scan-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      addLog('Scan package exported', 'success');
+    } catch (exportError) {
+      addLog(`Export failed: ${exportError instanceof Error ? exportError.message : 'Unknown error'}`, 'error');
+    }
+  }, [addLog, llmAnalysis, result]);
+
+  const runDeepAnalysis = useCallback(async (
+    exifData: ExifData,
+    trigger: 'auto' | 'manual',
+    scanId: number,
+  ) => {
+    if (scanId !== activeScanIdRef.current) return;
+    if (Object.keys(exifData).length === 0) return;
+
+    setAiLoading(true);
+    setAiError(null);
+    addLog(
+      trigger === 'auto'
+        ? 'Starting background metadata analysis...'
+        : 'Refreshing metadata analysis...',
+      'info',
+    );
+
+    try {
+      const response = await fetch(API_ENDPOINTS.analyze, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          exif_data: exifData,
+          profile: 'deep',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`AI review failed with HTTP ${response.status}`);
+      }
+
+      const data: AnalyzeExifResponse = await response.json();
+      if (scanId !== activeScanIdRef.current) return;
+
+      if (!data.success || !data.llm_analysis) {
+        throw new Error(data.error || 'AI review failed');
+      }
+
+      setLlmAnalysis(data.llm_analysis);
+      if (data.llm_analysis.fallback_reason) {
+        addLog(
+          `AI returned an incomplete fallback after ${data.llm_analysis.latency_ms}ms: ${data.llm_analysis.fallback_reason}`,
+          'warning',
+        );
+      } else {
+        addLog(
+          `AI review complete in ${data.llm_analysis.latency_ms}ms${data.llm_analysis.cached ? ' (cache)' : ''}`,
+          'success',
+        );
+      }
+    } catch (analysisError) {
+      if (scanId !== activeScanIdRef.current) return;
+
+      const message = analysisError instanceof Error ? analysisError.message : 'AI review failed';
+      setAiError(message);
+      addLog(`AI review fallback active: ${message}`, 'warning');
+    } finally {
+      if (scanId === activeScanIdRef.current) {
+        setAiLoading(false);
+      }
+    }
+  }, [addLog]);
+
   const handleUpload = useCallback(async (isRetry = false) => {
     if (!file) {
       setError('No file selected');
       addLog('ERROR: No file selected', 'error');
       return;
     }
-    
-    setLoading(true);
+
+    const scanId = activeScanIdRef.current + 1;
+    activeScanIdRef.current = scanId;
+
+    setExtracting(true);
     setError(null);
+    setAiError(null);
+    setAiLoading(false);
     setResult(null);
+    setPipeline(null);
     setLlmAnalysis(null);
-    addLog('Initiating extraction sequence...', 'info');
+    addLog('Starting image scan...', 'info');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      addLog('Uploading to analysis engine...', 'info');
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), RETRY_CONFIG.timeout);
@@ -76,230 +198,266 @@ export default function ImageUploader() {
         body: formData,
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
+      const data: ExtractExifJsonResponse = await response.json();
 
-      if (data.success && data.data?.exif_data) {
-        const exifData = data.data.exif_data;
-        setResult(exifData);
-        setLlmAnalysis(data.llm_analysis || null);
-        const count = Object.keys(exifData).length;
-        addLog(`Extraction complete — ${count} tags found`, 'success');
-        if (exifData.GPSLatitude) {
-          addLog('⚠ GPS coordinates detected', 'warning');
-        } else {
-          addLog('No GPS data present', 'info');
-        }
-        const newUpload = {
-          id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          fileName: file.name,
-          preview: preview || '',
-          hasGPS: !!exifData.GPSLatitude,
-          tagCount: count,
-        };
-        setHistory(prev => [newUpload, ...prev].slice(0, 8));
-        setRetryCount(0);
-      } else {
+      if (!data.success || !data.data?.exif_data) {
         throw new Error(data.error || 'Extraction failed');
       }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        addLog('Request timeout - server not responding', 'error');
-        setError('Request timeout. Please try again.');
+
+      const exifData = data.data.exif_data;
+      const count = Object.keys(exifData).length;
+
+      if (scanId !== activeScanIdRef.current) {
+        return;
+      }
+
+      setResult(exifData);
+      setPipeline(data.pipeline ?? null);
+      setLlmAnalysis(count > 0 ? (data.llm_analysis ?? null) : null);
+
+      addLog(`Metadata extracted in ${data.pipeline?.extract_ms ?? 0}ms`, 'success');
+      addLog(`Found ${count} EXIF tags`, 'info');
+
+      if (count === 0) {
+        addLog('No EXIF metadata found. Skipping AI summary refresh.', 'warning');
+        setRetryCount(0);
+        return;
+      }
+
+      if (!llmHealth?.available) {
+        addLog('No text-based local model is ready. Using metadata scan without AI summary.', 'warning');
+        setRetryCount(0);
+        return;
+      }
+
+      if (exifData.GPSLatitude) {
+        addLog('High-risk location metadata detected', 'warning');
+      }
+
+      addToHistory({
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        fileName: file.name,
+        preview: preview || '',
+        hasGPS: !!exifData.GPSLatitude,
+        tagCount: count,
+      });
+
+      setRetryCount(0);
+      void runDeepAnalysis(exifData, 'auto', scanId);
+    } catch (uploadError) {
+      if (scanId !== activeScanIdRef.current) {
+        return;
+      }
+
+      if (uploadError instanceof Error && uploadError.name === 'AbortError') {
+        addLog('Extraction request timed out', 'error');
+        setError('Metadata extraction timed out. Try again with a smaller image.');
       } else if (!isRetry && retryCount < RETRY_CONFIG.maxRetries) {
-        setRetryCount(prev => prev + 1);
-        addLog(`Connection failed - retry ${retryCount + 1}/${RETRY_CONFIG.maxRetries}...`, 'warning');
-        
-        // Exponential backoff
-        await new Promise(resolve => 
-          setTimeout(resolve, RETRY_CONFIG.retryDelay * Math.pow(2, retryCount))
+        setRetryCount((prev) => prev + 1);
+        addLog(`Retrying extraction (${retryCount + 1}/${RETRY_CONFIG.maxRetries})`, 'warning');
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_CONFIG.retryDelay * Math.pow(2, retryCount)),
         );
-        
+
         return handleUpload(true);
       } else {
-        const msgError = err instanceof Error ? err.message : 'Unknown error';
-        setError(msgError);
-        addLog(`ERROR: ${msgError}`, 'error');
+        const message = uploadError instanceof Error ? uploadError.message : 'Unknown error';
+        setError(message);
+        addLog(`ERROR: ${message}`, 'error');
       }
     } finally {
-      setLoading(false);
+      if (scanId === activeScanIdRef.current) {
+        setExtracting(false);
+      }
     }
-  }, [file, preview, addLog, setHistory, retryCount]);
+  }, [addLog, addToHistory, file, llmHealth?.available, preview, retryCount, runDeepAnalysis]);
 
-  // Keyboard shortcuts
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + O to open file
-      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
-        e.preventDefault();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'o') {
+        event.preventDefault();
         inputRef.current?.click();
       }
-      
-      // Ctrl/Cmd + Enter to analyze
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && file && !loading) {
-        e.preventDefault();
-        handleUpload();
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && file && !extracting) {
+        event.preventDefault();
+        void handleUpload();
       }
-      
-      // Ctrl/Cmd + S to save JSON (when results exist)
-      if ((e.ctrlKey || e.metaKey) && e.key === 's' && result) {
-        e.preventDefault();
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 's' && result) {
+        event.preventDefault();
         downloadJSON();
       }
-      
-      // Escape to close mobile sidebar
-      if (e.key === 'Escape' && mobileSidebarOpen) {
+
+      if (event.key === 'Escape' && mobileSidebarOpen) {
         setMobileSidebarOpen(false);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [file, loading, result, mobileSidebarOpen, downloadJSON, handleUpload]);
+  }, [downloadJSON, extracting, file, handleUpload, mobileSidebarOpen, result]);
 
   const handleFileChange = useCallback(async (files: FileList | null) => {
-    if (files && files[0]) {
-      const f = files[0];
-      
-      // Validate file type
-      const validTypes = ['image/jpeg', 'image/png', 'image/tiff', 'image/heic', 'image/webp'];
-      if (!validTypes.includes(f.type)) {
-        addLog(`ERROR: Unsupported file type: ${f.type}`, 'error');
-        setError('Unsupported file type. Please upload JPG, PNG, TIFF, HEIC, or WEBP.');
-        return;
-      }
-      
-      // Validate file size (max 50MB)
-      const maxSize = 50 * 1024 * 1024;
-      if (f.size > maxSize) {
-        addLog(`ERROR: File too large: ${(f.size / 1024 / 1024).toFixed(1)}MB`, 'error');
-        setError('File size exceeds 50MB limit.');
-        return;
-      }
-      
-      setFile(f);
-      setResult(null);
-      setError(null);
-      addLog(`File loaded: ${f.name}`, 'success');
-      addLog(`Size: ${(f.size / 1024).toFixed(1)} KB | Type: ${f.type}`, 'info');
-      
-      try {
-        const compressedPreview = await compressPreview(f);
-        setPreview(compressedPreview);
-        addLog('Preview generated successfully', 'success');
-      } catch {
-        addLog('Failed to generate preview', 'error');
-      }
+    if (!(files && files[0])) return;
+
+    const selectedFile = files[0];
+    const validation = validateImageFile(selectedFile);
+
+    if (!validation.valid) {
+      addLog(`ERROR: ${validation.error}`, 'error');
+      setError(validation.error || 'Unsupported file');
+      return;
+    }
+
+    activeScanIdRef.current += 1;
+
+    setFile(selectedFile);
+    setResult(null);
+    setPipeline(null);
+    setLlmAnalysis(null);
+    setAiError(null);
+    setAiLoading(false);
+    setError(null);
+
+    addLog(`Loaded ${selectedFile.name}`, 'success');
+    addLog(`File size ${(selectedFile.size / 1024).toFixed(1)} KB`, 'info');
+
+    try {
+      const compressedPreview = await compressPreview(selectedFile, UI_CONFIG.previewMaxSize);
+      setPreview(compressedPreview);
+      addLog('Preview ready', 'success');
+    } catch {
+      setPreview(null);
+      addLog('Preview unavailable, continuing without thumbnail', 'warning');
     }
   }, [addLog]);
 
-  // Memoized button styles
-  const uploadButtonStyle = useMemo(() => ({
-    background: file && !loading ? 'var(--green)' : 'transparent',
-    color: file && !loading ? '#07080f' : 'var(--muted)',
-    border: `1px solid ${file && !loading ? 'var(--green)' : 'var(--border)'}`,
-    cursor: file && !loading ? 'pointer' : 'not-allowed',
-  }), [file, loading]);
+  const primaryActionLabel = extracting ? '[ SCANNING IMAGE... ]' : '[ START SCAN ]';
+  const canRunDeepAnalysis = result ? Object.keys(result).length > 0 && !aiLoading && Boolean(llmHealth?.available) : false;
 
   return (
-    <div className="flex flex-col gap-8 animate-fadeIn">
-      <Header />
+    <div className="page-shell animate-fadeIn">
+      <Header llmHealth={llmHealth} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
-        {/* Left Column */}
-        <div className="flex flex-col gap-6">
+      <div className="workspace-grid">
+        <div className="workspace-main">
           <UploadZone
             file={file}
             preview={preview}
             dragOver={dragOver}
             onDragOver={() => setDragOver(true)}
             onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
+            onDrop={(event) => {
               setDragOver(false);
-              handleFileChange(e.dataTransfer.files);
+              handleFileChange(event.dataTransfer.files);
             }}
             onInputChange={handleFileChange}
             inputRef={inputRef}
           />
 
-          {/* Analyze Button */}
+          <div className="pipeline-strip">
+            <div className="pipeline-stage">
+              <span className="pipeline-label">Step 1</span>
+              <strong>Read image metadata</strong>
+              <p>Get the EXIF data and immediate privacy signals.</p>
+            </div>
+            <div className="pipeline-stage pipeline-stage-accent">
+              <span className="pipeline-label">Step 2</span>
+              <strong>Build AI metadata summary</strong>
+              <p>The local model summarizes metadata risk after the EXIF scan finishes.</p>
+            </div>
+          </div>
+
           <button
-            onClick={() => handleUpload()}
-            disabled={!file || loading}
-            className="py-3 px-4 font-mono text-lg tracking-wider font-bold rounded transition-all hover:shadow-glow disabled:hover:shadow-none"
-            style={uploadButtonStyle}
-            aria-label={loading ? 'Analyzing...' : 'Extract metadata'}
+            onClick={() => void handleUpload()}
+            disabled={!file || extracting}
+            className="primary-cta"
+            aria-label={extracting ? 'Scanning image...' : 'Start scan'}
           >
-            {loading ? '[ ANALYZING... ]' : '[ EXTRACT METADATA ]'}
+            {primaryActionLabel}
           </button>
 
-          {/* Progress Indicator */}
-          {loading && (
-            <div className="flex items-center gap-3 p-3 border border-green/20 bg-green/5 rounded">
-              <div className="w-4 h-4 border-2 border-green border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs font-mono text-green">PROCESSING ... {retryCount > 0 ? `(Retry ${retryCount}/${RETRY_CONFIG.maxRetries})` : ''}</span>
+          {(extracting || aiLoading) && (
+            <div className="status-banner">
+              <div className="status-spinner" />
+              <div>
+                <p className="status-title">
+                  {extracting ? 'Reading metadata from the image' : 'Generating the AI privacy summary'}
+                </p>
+                <p className="status-caption">
+                  {extracting
+                    ? 'You will see the metadata as soon as extraction finishes.'
+                    : 'The metadata is already available below while the AI summary finishes.'}
+                </p>
+              </div>
             </div>
           )}
 
-          {/* Error Display */}
           {error && (
-            <div 
-              className="p-4 rounded text-xs font-mono animate-shake"
-              style={{
-                background: 'rgba(255,77,109,0.08)',
-                border: '1px solid rgba(255,77,109,0.3)',
-                color: '#ff4d6d',
-              }}
-              role="alert"
-            >
-              <span className="font-bold">ERROR // </span>
-              {error}
+            <div className="error-banner" role="alert">
+              <span className="font-bold">ERROR //</span> {error}
               <button
                 onClick={() => setError(null)}
-                className="ml-4 px-2 py-1 text-xs border border-red/30 hover:bg-red/10 rounded"
+                className="dismiss-btn"
                 aria-label="Dismiss error"
               >
-                [DISMISS]
+                DISMISS
               </button>
             </div>
           )}
 
           {result && (
             <div className="fade-up">
-              <ResultsPanel result={result} llmAnalysis={llmAnalysis} onDownload={downloadJSON} file={file} />
+              <ResultsPanel
+                result={result}
+                llmAnalysis={llmAnalysis}
+                pipeline={pipeline}
+                aiLoading={aiLoading}
+                aiError={aiError}
+                canRunDeepAnalysis={canRunDeepAnalysis}
+                onRunDeepAnalysis={() => {
+                  const currentResult = result;
+                  if (currentResult && Object.keys(currentResult).length > 0) {
+                    void runDeepAnalysis(currentResult, 'manual', activeScanIdRef.current);
+                  }
+                }}
+                onDownload={downloadJSON}
+                file={file}
+              />
             </div>
           )}
         </div>
 
-        {/* Desktop Sidebar */}
         <div className="hidden lg:block">
           <Sidebar logs={logs} history={history} onClearLogs={clearLogs} onClearHistory={clearHistory} />
         </div>
       </div>
 
-      {/* Mobile Sidebar Toggle */}
-      <button 
-        className="lg:hidden fixed bottom-4 right-4 w-12 h-12 rounded-full bg-green text-black flex items-center justify-center shadow-lg hover:shadow-glow transition-all z-50"
+      <button
+        className="mobile-log-button lg:hidden"
         onClick={() => setMobileSidebarOpen(true)}
         aria-label="Open system log"
       >
-        📋
+        LOG
       </button>
 
-      {/* Mobile Sidebar Modal */}
       <MobileSidebar
         isOpen={mobileSidebarOpen}
         onClose={() => setMobileSidebarOpen(false)}
         logs={logs}
         history={history}
         onClearLogs={clearLogs}
+        onClearHistory={clearHistory}
       />
     </div>
   );

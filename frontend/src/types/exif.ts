@@ -1,32 +1,15 @@
 /**
- * @fileoverview Type definitions for EXIF metadata and upload data structures.
- * Provides strict type safety for EXIF data extraction and history management.
+ * Shared frontend types for EXIF extraction and analysis.
  */
 
-/**
- * EXIF metadata extracted from image files.
- * Includes camera information, geolocation data, timestamps, and resolution.
- * 
- * @interface ExifData
- * @property {string} [Make] - Camera manufacturer (e.g., "Canon", "Nikon")
- * @property {string} [Model] - Camera model name
- * @property {string} [DateTime] - Image creation datetime
- * @property {string} [DateTimeOriginal] - Original photo capture datetime
- * @property {string} [Software] - Software used to edit the image
- * @property {string} [GPSLatitudeRef] - GPS latitude reference (N/S)
- * @property {string} [GPSLongitudeRef] - GPS longitude reference (E/W)
- * @property {unknown} [GPSLatitude] - GPS latitude coordinate
- * @property {unknown} [GPSLongitude] - GPS longitude coordinate
- * @property {number} [PixelXDimension] - Image width in pixels
- * @property {number} [PixelYDimension] - Image height in pixels
- * @property {unknown} [key: string] - Additional EXIF fields
- */
 export interface ExifData {
   Make?: string;
   Model?: string;
   DateTime?: string;
   DateTimeOriginal?: string;
   Software?: string;
+  GPSAltitude?: unknown;
+  GPSTimestamp?: unknown;
   GPSLatitudeRef?: string;
   GPSLongitudeRef?: string;
   GPSLatitude?: unknown;
@@ -36,18 +19,69 @@ export interface ExifData {
   [key: string]: unknown;
 }
 
-/**
- * Represents a single upload record in the scan history.
- * Used for caching recent uploads and displaying quick access to previous analyses.
- * 
- * @interface Upload
- * @property {string} id - Unique upload identifier (timestamp-based)
- * @property {string} timestamp - ISO-formatted date/time of upload
- * @property {string} fileName - Original filename of the uploaded image
- * @property {string} preview - Base64-encoded thumbnail for quick display
- * @property {boolean} hasGPS - Flag indicating GPS data presence
- * @property {number} tagCount - Total number of EXIF tags extracted
- */
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+export type AnalysisProfile = 'rapid' | 'deep';
+export type AnalysisMode = 'heuristic' | 'ollama';
+
+export interface LlmAnalysis {
+  risk_level: RiskLevel;
+  risk_score: number;
+  summary: string;
+  key_findings: string[];
+  recommendations: string[];
+  sensitive_fields: string[];
+  attacker_simulation: string;
+  model: string;
+  provider: string;
+  analysis_mode: AnalysisMode;
+  fallback_reason?: string | null;
+  cached: boolean;
+  latency_ms: number;
+}
+
+export interface PipelineMeta {
+  extract_ms: number;
+  analysis_pending: boolean;
+  profile: AnalysisProfile;
+}
+
+export interface AnalysisMeta {
+  duration_ms: number;
+  cached: boolean;
+  profile: AnalysisProfile;
+}
+
+export interface ExtractExifJsonResult {
+  image_path: string;
+  total_tags: number;
+  exif_data: ExifData;
+}
+
+export interface ExtractExifJsonResponse {
+  success: boolean;
+  filename?: string;
+  json_file?: string;
+  json_path?: string;
+  data?: ExtractExifJsonResult;
+  llm_analysis?: LlmAnalysis | null;
+  pipeline?: PipelineMeta;
+  error?: string;
+}
+
+export interface AnalyzeExifResponse {
+  success: boolean;
+  llm_analysis?: LlmAnalysis | null;
+  meta?: AnalysisMeta;
+  error?: string;
+}
+
+export interface LlmHealthResponse {
+  available: boolean;
+  model: string;
+  base_url: string;
+  recommended_profile: AnalysisProfile;
+}
+
 export interface Upload {
   id: string;
   timestamp: string;

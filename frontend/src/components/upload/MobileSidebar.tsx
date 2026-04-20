@@ -1,8 +1,9 @@
 /**
- * @fileoverview Mobile-friendly sidebar modal component.
+ * Mobile-friendly sidebar modal component.
  */
 
 import { useEffect, useRef } from 'react';
+
 import type { LogEntry } from '../../hooks/useTerminalLog';
 import type { Upload } from '../../types/exif';
 import { Sidebar } from './Sidebar';
@@ -13,15 +14,22 @@ interface MobileSidebarProps {
   logs: LogEntry[];
   history: Upload[];
   onClearLogs?: () => void;
+  onClearHistory?: () => void;
 }
 
-export function MobileSidebar({ isOpen, onClose, logs, history, onClearLogs }: MobileSidebarProps) {
+export function MobileSidebar({
+  isOpen,
+  onClose,
+  logs,
+  history,
+  onClearLogs,
+  onClearHistory,
+}: MobileSidebarProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Handle click outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
         onClose();
       }
     };
@@ -41,37 +49,27 @@ export function MobileSidebar({ isOpen, onClose, logs, history, onClearLogs }: M
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-fadeIn" />
-      
-      {/* Modal */}
-      <div 
+
+      <div
         ref={modalRef}
-        className="relative w-full max-h-[90vh] overflow-y-auto bg-surface border-t border-green/30 rounded-t-xl animate-slideUp"
-        style={{
-          background: 'var(--surface)',
-        }}
+        className="relative w-full max-h-[90vh] overflow-y-auto rounded-t-[28px] animate-slideUp"
+        style={{ background: 'var(--surface-strong)' }}
       >
-        {/* Handle */}
-        <div className="sticky top-0 flex justify-center p-3 bg-surface/90 backdrop-blur-sm border-b border-dark-border">
-          <div 
-            className="w-12 h-1 bg-muted rounded-full cursor-pointer"
-            onClick={onClose}
-          />
+        <div className="sticky top-0 flex justify-center p-3 border-b border-dark-border bg-surface/90 backdrop-blur-sm">
+          <div className="w-12 h-1 rounded-full bg-white/20 cursor-pointer" onClick={onClose} />
         </div>
 
-        {/* Content */}
         <div className="p-4 pb-8">
-          <Sidebar logs={logs} history={history} onClearLogs={onClearLogs} />
+          <Sidebar logs={logs} history={history} onClearLogs={onClearLogs} onClearHistory={onClearHistory} />
         </div>
 
-        {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-surface2 border border-dark-border flex items-center justify-center text-muted hover:text-green hover:border-green transition-colors"
+          className="absolute top-4 right-4 w-8 h-8 rounded-full border border-dark-border text-muted hover:text-green hover:border-green transition-colors"
           aria-label="Close sidebar"
         >
-          ✕
+          X
         </button>
       </div>
     </div>

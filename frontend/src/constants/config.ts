@@ -1,24 +1,29 @@
 /**
- * @fileoverview Application configuration constants.
+ * Frontend runtime configuration.
  */
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+
 export const API_ENDPOINTS = {
-  extract: 'http://localhost:8000/api/extract-exif-json',
+  extract: `${API_BASE_URL}/api/extract-exif-json`,
+  analyze: `${API_BASE_URL}/api/analyze-exif`,
+  sanitize: `${API_BASE_URL}/api/sanitize-image`,
+  llmHealth: `${API_BASE_URL}/api/health/llm`,
 } as const;
 
 export const RETRY_CONFIG = {
-  maxRetries: 3,
-  retryDelay: 1000, // ms
-  timeout: 120000, // 120 seconds (2 minutes)
+  maxRetries: 2,
+  retryDelay: 800,
+  timeout: 30000,
 } as const;
 
 export const FILE_LIMITS = {
-  maxSize: 50 * 1024 * 1024, // 50MB
+  maxSize: 50 * 1024 * 1024,
   allowedTypes: ['image/jpeg', 'image/png', 'image/tiff', 'image/heic', 'image/webp'],
 } as const;
 
 export const UI_CONFIG = {
-  maxLogEntries: 50,
+  maxLogEntries: 60,
   maxHistoryItems: 20,
-  previewMaxSize: 200, // pixels
+  previewMaxSize: 320,
 } as const;

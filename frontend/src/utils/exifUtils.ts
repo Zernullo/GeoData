@@ -3,6 +3,7 @@
  */
 
 import type { ExifData } from '../types/exif';
+import { SENSITIVE_FIELDS } from '../constants/exif';
 
 export function riskScore(exif: ExifData): { score: number; level: string; color: string } {
   let score = 0;
@@ -33,6 +34,10 @@ export function riskScore(exif: ExifData): { score: number; level: string; color
   if (score >= 60) return { score, level: 'HIGH', color: '#ff4d6d' };
   if (score >= 30) return { score, level: 'MEDIUM', color: '#f5a623' };
   return { score, level: 'LOW', color: '#00ffa3' };
+}
+
+export function getSensitiveKeys(exif: ExifData): string[] {
+  return Object.keys(exif).filter(key => SENSITIVE_FIELDS.includes(key));
 }
 
 export function formatExifValue(value: unknown): string {

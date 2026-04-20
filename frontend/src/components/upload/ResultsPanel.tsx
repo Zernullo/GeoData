@@ -1,268 +1,372 @@
-import { useState } from 'react';
-import type { ExifData } from '../../types/exif';
+import { useMemo, useState } from 'react';
+
+import { API_ENDPOINTS } from '../../constants/config';
+import type { ExifData, LlmAnalysis, PipelineMeta } from '../../types/exif';
+import { formatExifValue, getSensitiveKeys, groupExifData, riskScore } from '../../utils/exifUtils';
 
 interface ResultsPanelProps {
   result: ExifData;
-  llmAnalysis?: string | null;
+  llmAnalysis?: LlmAnalysis | null;
+  pipeline?: PipelineMeta | null;
+  aiLoading: boolean;
+  aiError: string | null;
+  canRunDeepAnalysis: boolean;
+  onRunDeepAnalysis: () => void;
   onDownload: () => void;
   file?: File | null;
 }
 
-const SENSITIVE_FIELDS = [
-  'GPSLatitude', 'GPSLongitude', 'GPSLatitudeRef', 'GPSLongitudeRef',
-  'GPSAltitude', 'GPSTimestamp', 'GPSDateStamp', 'Make', 'Model',
-  'Software', 'DateTime', 'DateTimeOriginal', 'SerialNumber', 'LensSerialNumber'
-];
+type TabType = 'overview' | 'categories' | 'raw' | 'ai';
 
-function riskScore(exif: ExifData): { score: number; level: string; color: string } {
-  let score = 0;
-  if (exif.GPSLatitude) score += 40;
-  if (exif.Make || exif.Model) score += 20;
-  if (exif.DateTime || exif.DateTimeOriginal) score += 15;
-  if (exif.Software) score += 10;
-  const keys = Object.keys(exif);
-  if (keys.some(k => k.includes('Serial'))) score += 15;
-  score = Math.min(score, 100);
-  if (score >= 60) return { score, level: 'HIGH', color: '#ff4d6d' };
-  if (score >= 30) return { score, level: 'MEDIUM', color: '#f5a623' };
-  return { score, level: 'LOW', color: '#00ffa3' };
+function buildOverviewRows(exif: ExifData): Array<{ label: string; value: string }> {
+  const priorityRows = [
+    { label: 'Camera make', value: formatExifValue(exif.Make) },
+    { label: 'Camera model', value: formatExifValue(exif.Model) },
+    { label: 'Captured at', value: formatExifValue(exif.DateTimeOriginal || exif.DateTime) },
+    { label: 'Software', value: formatExifValue(exif.Software) },
+    {
+      label: 'GPS latitude',
+      value: formatExifValue(exif.GPSLatitude),
+    },
+    {
+      label: 'GPS longitude',
+      value: formatExifValue(exif.GPSLongitude),
+    },
+    {
+      label: 'Resolution',
+      value:
+        exif.PixelXDimension && exif.PixelYDimension
+          ? `${exif.PixelXDimension} x ${exif.PixelYDimension}`
+          : '',
+    },
+  ].filter((row) => row.value);
+
+  if (priorityRows.length > 0) {
+    return priorityRows;
+  }
+
+  return Object.entries(exif)
+    .slice(0, 8)
+    .map(([key, value]) => ({
+      label: key,
+      value: formatExifValue(value),
+    }))
+    .filter((row) => row.value);
 }
 
-function groupExifData(exif: ExifData): Record<string, Record<string, unknown>> {
-  const groups: Record<string, Record<string, unknown>> = {
-    Camera: {}, GPS: {}, Timestamps: {}, Image: {}, Other: {}
-  };
-
-  Object.entries(exif).forEach(([key, value]) => {
-    if (key.includes('GPS') || key.includes('Latitude') || key.includes('Longitude')) {
-      groups.GPS[key] = value;
-    } else if (key.includes('Make') || key.includes('Model') || key.includes('Software') || key.includes('Serial')) {
-      groups.Camera[key] = value;
-    } else if (key.includes('DateTime') || key.includes('Time')) {
-      groups.Timestamps[key] = value;
-    } else if (key.includes('Pixel') || key.includes('Resolution') || key.includes('Width') || key.includes('Height')) {
-      groups.Image[key] = value;
-    } else {
-      groups.Other[key] = value;
-    }
-  });
-
-  Object.keys(groups).forEach(key => {
-    if (Object.keys(groups[key]).length === 0) delete groups[key];
-  });
-
-  return groups;
-}
-
-type TabType = 'overview' | 'raw' | 'grouped' | 'llm';
-
-export function ResultsPanel({ result, llmAnalysis, onDownload, file }: ResultsPanelProps) {
+export function ResultsPanel({
+  result,
+  llmAnalysis,
+  pipeline,
+  aiLoading,
+  aiError,
+  canRunDeepAnalysis,
+  onRunDeepAnalysis,
+  onDownload,
+  file,
+}: ResultsPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [sanitizing, setSanitizing] = useState(false);
+  const [sanitizeError, setSanitizeError] = useState<string | null>(null);
+  const hasMetadata = Object.keys(result).length > 0;
 
-  const risk = riskScore(result);
-  const sensitiveKeys = Object.keys(result).filter(k => SENSITIVE_FIELDS.includes(k));
+  const fallbackRisk = riskScore(result);
+  const activeRisk = llmAnalysis
+    ? { score: llmAnalysis.risk_score, level: llmAnalysis.risk_level, color: fallbackRisk.color }
+    : fallbackRisk;
+  const sensitiveKeys = getSensitiveKeys(result);
   const groupedData = groupExifData(result);
+  const overviewRows = useMemo(() => buildOverviewRows(result), [result]);
+  const rawJson = useMemo(() => JSON.stringify(result, null, 2), [result]);
+  const aiSourceLabel = llmAnalysis
+    ? llmAnalysis.analysis_mode === 'ollama'
+      ? `Local LLM (${llmAnalysis.model})`
+      : 'Rules Engine'
+    : 'Rules Engine';
+  const summaryAvailabilityLabel = llmAnalysis ? 'Available' : hasMetadata ? 'Metadata only' : 'Not available';
+
+  const tabs: Array<{ id: TabType; label: string }> = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'categories', label: 'Categories' },
+    { id: 'raw', label: 'Raw Data' },
+    { id: 'ai', label: 'AI Summary' },
+  ];
 
   const handleSanitize = async () => {
     if (!file) return;
+
     setSanitizing(true);
+    setSanitizeError(null);
+
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch('http://localhost:8000/api/sanitize-image', {
+
+      const response = await fetch(API_ENDPOINTS.sanitize, {
         method: 'POST',
         body: formData,
       });
-      if (!res.ok) throw new Error('Sanitization failed');
-      const blob = await res.blob();
+
+      if (!response.ok) {
+        throw new Error(`Sanitization failed with HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `sanitized-${file.name}`;
-      a.click();
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `sanitized-${file.name}`;
+      anchor.click();
       URL.revokeObjectURL(url);
-    } catch {
-      alert('Failed to sanitize image.');
+    } catch (error) {
+      setSanitizeError(error instanceof Error ? error.message : 'Failed to sanitize image.');
     } finally {
       setSanitizing(false);
     }
   };
 
-  const tabs = (['overview', 'grouped', 'raw', 'llm'] as TabType[]);
-
   return (
-    <div style={{ border: '1px solid var(--border-accent)', borderRadius: '4px', overflow: 'hidden' }}>
-
-      {/* Risk Banner */}
-      <div style={{
-        background: `${risk.color}15`, borderBottom: `1px solid ${risk.color}40`,
-        padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
+    <section className="results-shell">
+      <div className="results-hero">
         <div>
-          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.15em', marginBottom: '0.25rem' }}>PRIVACY RISK</p>
-          <p style={{ color: risk.color, fontFamily: 'var(--display)', fontSize: '1.5rem', fontWeight: 800 }}>{risk.level}</p>
+          <p className="eyebrow mb-3">Privacy result</p>
+          <h2 className="results-score" style={{ color: activeRisk.color }}>
+            {activeRisk.level}
+          </h2>
+          <p className="results-summary">
+            {llmAnalysis?.summary ?? 'The metadata scan is ready. The AI summary will appear automatically when it finishes.'}
+          </p>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.1em', marginBottom: '0.5rem' }}>SCORE</p>
-          <div style={{ width: '80px', height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-            <div style={{ width: `${risk.score}%`, height: '100%', background: risk.color, transition: 'width 0.6s ease' }} />
+
+        <div className="results-meter">
+          <span className="results-meter-label">Risk score</span>
+          <strong>{activeRisk.score}/100</strong>
+          <div className="meter-track">
+            <div className="meter-fill" style={{ width: `${activeRisk.score}%`, background: activeRisk.color }} />
           </div>
-          <p style={{ color: risk.color, fontSize: '0.7rem', marginTop: '0.4rem' }}>{risk.score}/100</p>
+          <span className="results-meter-caption">
+            {llmAnalysis?.analysis_mode === 'ollama'
+              ? `AI summary finished in ${llmAnalysis.latency_ms}ms${llmAnalysis.cached ? ' - cache hit' : ''}`
+              : `Metadata extracted in ${pipeline?.extract_ms ?? 0}ms`}
+          </span>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)' }}>
-        {[
-          { label: 'TOTAL TAGS', value: Object.keys(result).length },
-          { label: 'SENSITIVE', value: sensitiveKeys.length },
-          { label: 'GPS DATA', value: result.GPSLatitude ? 'YES' : 'NO' },
-        ].map((stat, i) => (
-          <div key={i} style={{ padding: '1rem', borderRight: i < 2 ? '1px solid var(--border)' : 'none', textAlign: 'center' }}>
-            <p style={{ color: 'var(--muted)', fontSize: '0.6rem', letterSpacing: '0.12em', marginBottom: '0.4rem' }}>{stat.label}</p>
-            <p style={{
-              fontFamily: 'var(--display)', fontSize: '1.4rem', fontWeight: 700,
-              color: stat.label === 'GPS DATA' && result.GPSLatitude ? '#ff4d6d' : 'var(--text)',
-            }}>{stat.value}</p>
-          </div>
-        ))}
+      <div className="quick-grid">
+        <div className="quick-card">
+          <span className="quick-label">Total tags</span>
+          <strong>{Object.keys(result).length}</strong>
+        </div>
+        <div className="quick-card">
+          <span className="quick-label">Sensitive fields</span>
+          <strong>{sensitiveKeys.length}</strong>
+        </div>
+        <div className="quick-card">
+          <span className="quick-label">Summary source</span>
+          <strong>{aiSourceLabel}</strong>
+        </div>
+        <div className="quick-card">
+          <span className="quick-label">AI status</span>
+          <strong>{aiLoading ? 'Generating summary' : summaryAvailabilityLabel}</strong>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
-        {tabs.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} style={{
-            flex: 1, padding: '0.75rem', fontFamily: 'var(--mono)', fontSize: '0.65rem',
-            letterSpacing: '0.15em', color: activeTab === tab ? 'var(--green)' : 'var(--muted)',
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            borderBottom: activeTab === tab ? '2px solid var(--green)' : '2px solid transparent',
-          }}>
-            {tab.toUpperCase()}
+      <div className="metadata-help-card">
+        <div>
+          <p className="analysis-card-label">What counts as sensitive metadata?</p>
+          <p className="metadata-help-copy">
+            GPS coordinates, timestamps, device names, software versions, and serial-like fields can expose where,
+            when, and how a photo was created.
+          </p>
+        </div>
+        <div className="metadata-help-chips">
+          <span className="metadata-help-chip">Location</span>
+          <span className="metadata-help-chip">Time</span>
+          <span className="metadata-help-chip">Device</span>
+          <span className="metadata-help-chip">Software</span>
+          <span className="metadata-help-chip">Serial IDs</span>
+        </div>
+      </div>
+
+      <div className="analysis-rail">
+        <div className="analysis-step analysis-step-done">
+          <span className="analysis-step-index">1</span>
+          <div>
+            <strong>Metadata scan finished</strong>
+            <p>{pipeline ? `${pipeline.extract_ms}ms response time` : 'Completed'}</p>
+          </div>
+        </div>
+        <div className={llmAnalysis?.analysis_mode === 'ollama' ? 'analysis-step analysis-step-done' : 'analysis-step'}>
+          <span className="analysis-step-index">2</span>
+          <div>
+            <strong>AI summary</strong>
+            <p>
+              {aiLoading
+                ? 'Generating now'
+                : llmAnalysis?.analysis_mode === 'ollama'
+                  ? `Ready from ${llmAnalysis.model}`
+                  : 'Unavailable'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="tabs-row">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={activeTab === tab.id ? 'tab-chip tab-chip-active' : 'tab-chip'}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Tab Content */}
-      <div style={{ padding: '1.5rem', maxHeight: '400px', overflowY: 'auto' }}>
-
+      <div className="results-content">
         {activeTab === 'overview' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {[
-              { label: 'Camera', value: [result.Make, result.Model].filter(Boolean).join(' ') },
-              { label: 'Captured', value: result.DateTimeOriginal || result.DateTime },
-              { label: 'Software', value: result.Software },
-              { label: 'Resolution', value: result.PixelXDimension ? `${result.PixelXDimension} x ${result.PixelYDimension}` : undefined },
-              { label: 'GPS Ref', value: result.GPSLatitudeRef ? `${result.GPSLatitudeRef} / ${result.GPSLongitudeRef}` : undefined },
-            ].filter(r => r.value).map((row, i) => (
-              <div key={i} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                padding: '0.6rem 0', borderBottom: '1px solid var(--border)',
-              }}>
-                <span style={{ color: 'var(--muted)', fontSize: '0.7rem', letterSpacing: '0.1em' }}>{row.label}</span>
-                <span style={{ color: 'var(--text)', fontSize: '0.75rem', textAlign: 'right', maxWidth: '60%' }}>
-                  {String(row.value)}
-                </span>
-              </div>
-            ))}
+          <div className="simple-list">
+            {overviewRows.length > 0 ? (
+              overviewRows.map((row) => (
+                <div key={row.label} className="simple-row">
+                  <span className="simple-row-label">{row.label}</span>
+                  <span className="simple-row-value">{row.value}</span>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state">No readable metadata fields were found in this image.</div>
+            )}
           </div>
         )}
 
-        {activeTab === 'grouped' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {Object.entries(groupedData).map(([category, fields]) => (
-              <div key={category} style={{ border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
-                <div style={{ background: 'var(--surface2)', padding: '0.5rem 1rem', borderBottom: '1px solid var(--border)' }}>
-                  <p style={{ color: 'var(--muted)', fontSize: '0.65rem', letterSpacing: '0.15em' }}>{category.toUpperCase()}</p>
+        {activeTab === 'categories' && (
+          <div className="tab-panel-shell">
+            {Object.entries(groupedData).length > 0 ? (
+              Object.entries(groupedData).map(([category, fields]) => (
+                <div key={category} className="category-section">
+                  <div className="category-head">{category}</div>
+                  <div className="simple-list">
+                    {Object.entries(fields).map(([key, value]) => (
+                      <div key={key} className="simple-row">
+                        <span className="simple-row-label">{key}</span>
+                        <span className="simple-row-value">{formatExifValue(value)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {Object.entries(fields).map(([key, value]) => (
-                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.7rem' }}>
-                      <span style={{ color: 'var(--muted)', minWidth: '140px' }}>{key}</span>
-                      <span style={{ color: 'var(--text)', textAlign: 'right', wordBreak: 'break-all' }}>
-                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <div className="empty-state">No grouped metadata fields were found.</div>
+            )}
           </div>
         )}
 
         {activeTab === 'raw' && (
-          <div style={{ background: 'var(--surface2)', borderRadius: '4px', padding: '1rem' }}>
-            {Object.entries(result).map(([k, v]) => (
-              <div key={k} style={{
-                display: 'flex', gap: '1rem', padding: '0.35rem 0',
-                borderBottom: '1px solid var(--border)', fontSize: '0.7rem',
-              }}>
-                <span style={{ color: 'var(--green)', minWidth: '160px', flexShrink: 0, opacity: SENSITIVE_FIELDS.includes(k) ? 1 : 0.6 }}>
-                  {k}
-                </span>
-                <span style={{ color: 'var(--muted)', wordBreak: 'break-all' }}>
-                  {typeof v === 'object' ? JSON.stringify(v) : String(v).slice(0, 80)}
-                </span>
-              </div>
-            ))}
+          <div className="tab-panel-shell">
+            <div className="raw-json-panel">
+            <pre>{rawJson}</pre>
+            </div>
           </div>
         )}
 
-        {activeTab === 'llm' && (
-          <div style={{ color: 'var(--text)', fontSize: '0.8rem', whiteSpace: 'pre-line', fontFamily: 'var(--mono)', lineHeight: 1.8 }}>
-            {llmAnalysis && llmAnalysis.trim().length > 0
-              ? llmAnalysis
-              : <span style={{ color: 'var(--muted)' }}>No LLM analysis available for this image.</span>}
+        {activeTab === 'ai' && (
+          <div className="tab-panel-shell">
+            <div className="analysis-panel">
+            {llmAnalysis ? (
+              <>
+                <div className="ai-section">
+                  <p className="analysis-card-label">Summary source</p>
+                  <p>{aiSourceLabel}</p>
+                </div>
+
+                <div className="ai-section">
+                  <p className="analysis-card-label">Summary</p>
+                  <p>{llmAnalysis.summary}</p>
+                </div>
+
+                <div className="ai-section">
+                  <p className="analysis-card-label">Key findings</p>
+                  <div className="analysis-bullets">
+                    {llmAnalysis.key_findings.map((finding) => (
+                      <div key={finding}>- {finding}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ai-section">
+                  <p className="analysis-card-label">Recommendations</p>
+                  <div className="analysis-bullets">
+                    {llmAnalysis.recommendations.map((recommendation) => (
+                      <div key={recommendation}>- {recommendation}</div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="ai-section">
+                  <p className="analysis-card-label">Attacker Simulation</p>
+                  <p>{llmAnalysis.attacker_simulation}</p>
+                </div>
+              </>
+            ) : (
+              <div className="ai-section">
+                <p>
+                  {hasMetadata
+                    ? 'The metadata is ready. An AI summary is only available when a text-based local model is installed.'
+                    : 'No metadata was found in this image, so no AI summary is available.'}
+                </p>
+              </div>
+            )}
+
+            {aiLoading && (
+              <div className="ai-section">
+                <p className="analysis-card-label">Background review</p>
+                <p>The metadata is already ready. The AI summary is still being generated.</p>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="ai-section ai-section-error">
+                <p className="analysis-card-label">AI fallback</p>
+                <p>{aiError}</p>
+              </div>
+            )}
+
+            {canRunDeepAnalysis && !aiLoading && (
+              <button type="button" className="secondary-cta" onClick={onRunDeepAnalysis}>
+                REFRESH AI SUMMARY
+              </button>
+            )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Sensitive Fields Warning */}
       {sensitiveKeys.length > 0 && (
-        <div style={{
-          margin: '0 1.5rem 1.5rem', background: 'rgba(255,77,109,0.06)',
-          border: '1px solid rgba(255,77,109,0.2)', borderRadius: '4px', padding: '1rem',
-        }}>
-          <p style={{ color: '#ff4d6d', fontSize: '0.65rem', letterSpacing: '0.15em', marginBottom: '0.5rem' }}>
-            ⚠ SENSITIVE FIELDS DETECTED
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-            {sensitiveKeys.map(k => (
-              <span key={k} style={{
-                background: 'rgba(255,77,109,0.1)', border: '1px solid rgba(255,77,109,0.3)',
-                color: '#ff4d6d', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '2px',
-              }}>{k}</span>
+        <div className="sensitive-box">
+          <p className="analysis-card-label">Sensitive fields detected</p>
+          <div className="sensitive-chip-row">
+            {sensitiveKeys.map((key) => (
+              <span key={key} className="sensitive-chip">
+                {key}
+              </span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Action Buttons */}
-      <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <button onClick={onDownload} style={{
-          width: '100%', background: 'transparent', border: '1px solid var(--border)',
-          color: 'var(--green)', padding: '0.65rem', fontFamily: 'var(--mono)',
-          fontSize: '0.7rem', letterSpacing: '0.15em', cursor: 'pointer', borderRadius: '4px', fontWeight: 700,
-        }}
-          onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--green)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
-          onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
-        >
-          [ EXPORT JSON ]
+      {sanitizeError && <div className="inline-error">{sanitizeError}</div>}
+
+      <div className="action-row">
+        <button type="button" className="secondary-cta" onClick={onDownload}>
+          EXPORT SCAN PACKAGE
         </button>
         {file && (
-          <button onClick={handleSanitize} disabled={sanitizing} style={{
-            width: '100%', background: 'transparent', border: '1px solid var(--border)', color: 'var(--green)',
-            padding: '0.65rem', fontFamily: 'var(--mono)', fontSize: '0.7rem',
-            letterSpacing: '0.15em', cursor: sanitizing ? 'not-allowed' : 'pointer',
-            borderRadius: '4px', opacity: sanitizing ? 0.6 : 1, fontWeight: 700,
-          }}
-          onMouseEnter={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--green)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
-          onMouseLeave={e => { (e.target as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.target as HTMLButtonElement).style.color = 'var(--green)'; }}
-          >
-            {sanitizing ? '[ SANITIZING... ]' : '[ SANITIZE & DOWNLOAD ]'}
+          <button type="button" className="secondary-cta" onClick={handleSanitize} disabled={sanitizing}>
+            {sanitizing ? 'SANITIZING...' : 'SANITIZE & DOWNLOAD'}
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }

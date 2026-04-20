@@ -3,6 +3,7 @@
  */
 
 import type { ExifData } from '../types/exif';
+import { FILE_LIMITS } from '../constants/config';
 
 export const isExifData = (data: unknown): data is ExifData => {
   return typeof data === 'object' && data !== null;
@@ -57,14 +58,11 @@ export const compressPreview = (file: File, maxSize: number = 200): Promise<stri
 };
 
 export const validateImageFile = (file: File): { valid: boolean; error?: string } => {
-  const validTypes = ['image/jpeg', 'image/png', 'image/tiff', 'image/heic', 'image/webp'];
-  const maxSize = 50 * 1024 * 1024; // 50MB
-  
-  if (!validTypes.includes(file.type)) {
+  if (!(FILE_LIMITS.allowedTypes as readonly string[]).includes(file.type)) {
     return { valid: false, error: 'Unsupported file type. Please upload JPG, PNG, TIFF, HEIC, or WEBP.' };
   }
   
-  if (file.size > maxSize) {
+  if (file.size > FILE_LIMITS.maxSize) {
     return { valid: false, error: `File size exceeds 50MB limit. Current: ${(file.size / 1024 / 1024).toFixed(1)}MB` };
   }
   

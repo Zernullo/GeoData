@@ -19,13 +19,13 @@ export function useTerminalLog(maxEntries: number = 50) {
       id: crypto.randomUUID(), 
       timestamp: new Date(), 
       level: 'info', 
-      message: 'GEODATA v2.0 initialized' 
+      message: 'GeoData pipeline initialized' 
     },
     { 
       id: crypto.randomUUID(), 
       timestamp: new Date(), 
       level: 'info', 
-      message: 'Awaiting target file...' 
+      message: 'Waiting for an image to scan' 
     }
   ]);
 

@@ -1,5 +1,5 @@
 /**
- * @fileoverview File upload input component with drag-and-drop support.
+ * File upload input component with drag-and-drop support.
  */
 
 interface UploadZoneProps {
@@ -14,44 +14,66 @@ interface UploadZoneProps {
 }
 
 export function UploadZone({
-  file, preview, dragOver, onDragOver, onDragLeave, onDrop, onInputChange, inputRef
+  file,
+  preview,
+  dragOver,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onInputChange,
+  inputRef,
 }: UploadZoneProps) {
   return (
-    <div className={`card ${dragOver ? 'card-accent' : ''}`} style={{
-      borderColor: dragOver ? 'var(--green)' : 'var(--border)',
-      background: dragOver ? 'var(--green-dim)' : 'var(--surface)',
-    }}>
+    <section className={dragOver ? 'upload-panel upload-panel-active' : 'upload-panel'}>
       <div
-        onDragOver={(e) => { e.preventDefault(); onDragOver(e); }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          onDragOver(event);
+        }}
         onDragLeave={onDragLeave}
-        onDrop={(e) => { e.preventDefault(); onDrop(e); }}
+        onDrop={(event) => {
+          event.preventDefault();
+          onDrop(event);
+        }}
         onClick={() => inputRef.current?.click()}
-        className={`cursor-pointer flex ${preview ? 'flex-row items-center' : 'flex-col items-center justify-center'} gap-6 ${preview ? 'p-6' : 'p-12'}`}
+        className={preview ? 'upload-body upload-body-filled' : 'upload-body'}
       >
-        <input ref={inputRef} type="file" accept="image/*"
-          onChange={(e) => onInputChange(e.target.files)} style={{ display: 'none' }} />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={(event) => onInputChange(event.target.files)}
+          style={{ display: 'none' }}
+        />
 
         {preview ? (
           <>
-            <img src={preview} alt="preview" className="w-20 h-20 object-cover rounded-sm border border-dark-border-accent shrink-0" />
-            <div>
-              <p className="label-text mb-1">TARGET ACQUIRED</p>
-              <p className="text-dark-text text-sm mb-1">{file?.name}</p>
-              <p className="text-dark-muted text-xs">
-                {file ? `${(file.size / 1024).toFixed(1)} KB` : ''} — click to change
+            <div className="preview-frame">
+              <img src={preview} alt="Selected upload preview" className="preview-image" />
+            </div>
+            <div className="upload-copy">
+              <p className="label-text mb-2">Selected image</p>
+              <h3 className="upload-title">{file?.name}</h3>
+              <p className="upload-meta">
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : ''} - Click anywhere to replace the file
               </p>
             </div>
           </>
         ) : (
           <>
-            <div className="w-12 h-12 border border-dark-border-accent rounded flex items-center justify-center text-2xl">⊕</div>
-            <div className="text-center">
-              <p className="label-text mb-2">DROP IMAGE FILE</p>
-              <p className="text-dark-muted text-xs">JPG · PNG · TIFF · HEIC · WEBP</p>
+            <div className="upload-plus-wrap" aria-hidden="true">
+              <div className="upload-plus">+</div>
+            </div>
+            <div className="upload-copy upload-copy-center">
+              <p className="label-text mb-2">Click to upload or drag and drop</p>
+              <h3 className="upload-title">Build a privacy snapshot in seconds</h3>
+              <p className="upload-meta">
+                Add a JPG, PNG, TIFF, HEIC, or WEBP image. You will get a fast first result right away, and the deeper AI review can run after that.
+              </p>
             </div>
           </>
         )}
       </div>
-    </div>
+    </section>
   );
 }
