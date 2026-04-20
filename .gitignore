@@ -238,4 +238,6 @@ Thumbs.db
 backend/images/*
 backend/images/control/*
 !backend/images/control/.gitkeep
+backend/Images/*
+backend/Images/control/*
 

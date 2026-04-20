@@ -1,249 +1,258 @@
 # GeoData
 
-A full-stack application for extracting and analyzing image EXIF metadata, including GPS coordinates, camera information, and timestamps. Designed for geolocation mapping and image analysis.
+GeoData is a full-stack image metadata privacy analysis app for research and demos. It extracts EXIF data, highlights sensitive fields like GPS coordinates and timestamps, runs a local metadata review through Ollama, and can export a sanitized copy of the image.
 
-## Project Overview
+## What It Does
 
-GeoData provides a web interface to upload images and extract comprehensive metadata including:
-- Camera make and model
-- Capture date and time
-- GPS coordinates (latitude/longitude in decimal format)
-- Camera settings (ISO, aperture, shutter speed, etc.)
-- Software used
-- All raw EXIF data
+- Upload an image from the React frontend
+- Extract raw EXIF metadata in the FastAPI backend
+- Score privacy risk from sensitive metadata fields
+- Generate a structured privacy summary from the EXIF metadata with a local Ollama model
+- Download a metadata-stripped copy of the image
 
-## Tech Stack
+## Sample Cases
 
-**Frontend:**
-- React 19 with TypeScript
-- Vite (build tool)
-- Tailwind CSS (styling)
-- Node.js runtime
+### 1. GPS-heavy photo
 
-**Backend:**
+- EXIF contains `GPSLatitude`, `GPSLongitude`, `DateTimeOriginal`, and camera details
+- Expected result: high-risk summary with location and timing warnings
+
+### 2. Device-and-time metadata only
+
+- EXIF contains `Make`, `Model`, `DateTime`, and `Software`
+- Expected result: medium-risk summary focused on device identification and activity timing
+
+### 3. No EXIF metadata
+
+- Image has no readable EXIF payload
+- Expected result: metadata scan still works, but the AI summary is intentionally skipped
+
+## Stack
+
+### Frontend
+- React 19
+- TypeScript
+- Vite
+- Tailwind CSS
+
+### Backend
 - Python 3.13
-- FastAPI (API framework)
-- Uvicorn (ASGI server)
-- Pillow (image processing)
-- piexif (EXIF extraction - robust, more reliable than PIL)
-- PIL ExifTags (EXIF tag name mapping)
+- FastAPI
+- Pillow
+- piexif
+- pillow-heif
+- Ollama with the local text model `qwen:7b`
 
 ## Project Structure
 
-```
+```text
 GeoData/
-├── frontend/                 # React TypeScript application
-│   ├── src/
-│   │   ├── components/       # React components
-│   │   │   └── ImageUploader.tsx
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── vite.config.ts        # Vite configuration with React + Tailwind
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── backend/                  # Python FastAPI server
-│   ├── main.py               # FastAPI application & endpoints
-│   ├── extract_exif.py       # EXIF extraction logic
-│   ├── images/               # Uploaded images stored here
-│   ├── requirements.txt
-│   └── __pycache__/
-│
-├── venv/                     # Python virtual environment
-├── README.md
-└── LICENSE
+|- frontend/
+|  |- src/
+|  |- package.json
+|  `- README.md
+|- backend/
+|  |- main.py
+|  |- extract_exif.py
+|  |- local_LLM.py
+|  |- sanitize_image.py
+|  |- requirements.txt
+|  `- Images/control/
+|- README.md
+`- LICENSE
 ```
 
-## Setup Instructions
+## Prerequisites
 
-### Prerequisites
 - Python 3.13+
 - Node.js 18+
 - npm
+- Ollama running locally
 
-### Backend Setup
+## Ollama Setup
 
-1. **Create and activate virtual environment:**
-   ```powershell
-   python -m venv venv
-   . .\venv\Scripts\Activate.ps1
-   ```
+If someone else is setting this project up for the first time, use this sequence before starting the backend.
 
-2. **Install dependencies:**
-   ```powershell
-   pip install -r backend/requirements.txt
-   ```
+### 1. Install Ollama
 
-3. **Verify installation:**
-   ```powershell
-   pip list
-   ```
+- Download and install Ollama for your operating system from the official Ollama site.
+- After install, make sure the Ollama app or service is running locally.
 
-### Frontend Setup
+### 2. Pull A Local Model
 
-1. **Navigate to frontend:**
-   ```powershell
-   cd frontend
-   ```
+Windows PowerShell:
 
-2. **Install dependencies:**
-   ```powershell
-   npm install
-   ```
+```powershell
+"$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen:7b
+```
 
-## Running the Application
+If `ollama` is already on your `PATH`, you can also run:
 
-**Terminal 1 - Start Backend API:**
+```powershell
+ollama pull qwen:7b
+```
+
+### 3. Verify Ollama Is Ready
+
+```powershell
+ollama list
+```
+
+You should see `qwen:7b` in the output.
+
+### 4. Keep Ollama Running
+
+GeoData expects the local Ollama API at:
+
+- `http://127.0.0.1:11434`
+
+If you use a different Ollama host or need to point to the same local model explicitly, set:
+
+- `OLLAMA_BASE_URL`
+- `OLLAMA_MODEL`
+
+Example in PowerShell:
+
+```powershell
+$env:OLLAMA_MODEL="qwen:7b"
+```
+
+## Backend Setup
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r backend\requirements.txt
+```
+
+## Frontend Setup
+
+```powershell
+cd frontend
+npm install
+```
+
+## Run Locally
+
+### Terminal 1 - backend
+
 ```powershell
 cd backend
-. ..\venv\Scripts\Activate.ps1
+..\venv\Scripts\Activate.ps1
 uvicorn main:app --reload
 ```
 
-Backend runs on: `http://localhost:8000`
-- API docs: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+Backend URLs:
 
-**Terminal 2 - Start Frontend:**
+- App: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+- LLM health check: `http://localhost:8000/api/health/llm`
+
+### Terminal 2 - frontend
+
 ```powershell
 cd frontend
 npm run dev
 ```
 
-Frontend runs on: `http://localhost:5173`
+Frontend URL:
 
-## API Endpoints
+- App: `http://localhost:5173`
 
-### Health Check
-- **GET** `/` - Server status check
-  ```
-  Response: {"message": "GeoData API is running"}
-  ```
+## Architecture
 
-### Extract EXIF Data
-- **POST** `/api/extract-exif` - Upload image and get analyzed EXIF data
-  ```
-  Body: FormData with 'file' field containing image
-  Response: {
-    "success": true,
-    "filename": "photo.jpg",
-    "data": {
-      "camera_make": "Apple",
-      "camera_model": "iPhone 15 Pro",
-      "datetime": "2024-01-15 14:30:45",
-      "software": "iOS 17.2",
-      "gps": {"lat": 40.7128, "lon": -74.0060},
-      "raw_exif": {...}
-    }
-  }
-  ```
-
-### Extract EXIF as JSON
-- **POST** `/api/extract-exif-json` - Upload image and get full EXIF as JSON
-  ```
-  Body: FormData with 'file' field
-  Query: ?output_filename=exif_data.json (optional)
-  Response: {
-    "success": true,
-    "filename": "photo.jpg",
-    "json_file": "exif_data.json",
-    "data": {
-      "image_path": "...",
-      "total_tags": 42,
-      "exif_data": {...all tags...}
-    }
-  }
-  ```
-
-## Key Features
-
-### Backend (`extract_exif.py`)
-- `extract_exif()` - Extract all EXIF metadata from image
-- `extract_gps()` - Parse GPS data from EXIF
-- `decode_gps_coords()` - Convert DMS to decimal degrees
-- `analyze_image()` - High-level function combining all extractions
-- `serialize_for_json()` - Convert non-JSON-serializable objects
-
-### Frontend (`ImageUploader.tsx`)
-- Drag-and-drop file upload
-- Image file validation
-- Real-time loading state
-- Displays extracted metadata
-- Error handling
-- Full EXIF data preview (JSON)
-
-## Usage Example
-
-1. Open `http://localhost:5173` in browser
-2. Click to select an image or drag-and-drop
-3. Click "Upload & Analyze"
-4. View extracted camera info, GPS location, and all EXIF data
-
-## CORS Configuration
-
-The API allows requests from:
-- `http://localhost:5173` (Vite dev server)
-- `http://localhost:3000` (Create React App)
-
-## Supported Image Formats
-
-The backend supports any image format that PIL can open: JPEG, PNG, GIF, TIFF, BMP, etc.
-
-**Important:** For EXIF data to be extracted, the image must contain metadata:
-- ✅ **Has EXIF data:** Photos from camera, smartphone, drone
-- ❌ **No EXIF data:** Screenshots, edited images (metadata removed), downloaded images, PNG graphics
-
-**Test Images:**
-If your images don't have EXIF data, download a sample with GPS info:
-```powershell
-# From PowerShell in backend folder
-curl -o test.jpg "https://github.com/ianare/exif-samples/raw/master/jpg/gps/DSCN0010.jpg"
+```text
+React Upload UI
+    ->
+FastAPI extraction endpoint
+    ->
+EXIF parser + rules engine
+    ->
+optional Ollama text summary
+    ->
+results UI + sanitize/export actions
 ```
 
-Then upload `test.jpg` - it contains real GPS and camera data!
+## API
 
-## Development Notes
+### `GET /`
 
-- **Frontend auto-reload:** Changes to React code auto-refresh browser
-- **Backend auto-reload:** Changes to Python code auto-restart server (with `--reload`)
-- **API documentation:** FastAPI auto-generates interactive docs at `/docs`
-- **Uploaded images:** Saved to `backend/images/` folder for easy access and review
+Health check.
 
-## Troubleshooting
+### `GET /api/health/llm`
 
-**Backend won't start:**
-- Ensure virtual environment is activated
-- Check port 8000 isn't in use
-- Verify all dependencies installed: `pip install -r requirements.txt`
+Reports the configured Ollama model and base URL.
 
-**Frontend can't reach backend:**
-- Backend must be running on port 8000
-- Check CORS settings if getting 403 errors
-- Look at browser console (F12) for errors
+### `POST /api/extract-exif`
 
-**JSON file is empty or has no EXIF data:**
-- Your image doesn't have EXIF metadata
-- Try a photo from a camera or smartphone (not edited or screenshot)
-- Download a test image with real EXIF data:
-  ```powershell
-  curl -o test.jpg "https://github.com/ianare/exif-samples/raw/master/jpg/gps/DSCN0010.jpg"
-  ```
-- Upload the test image - it contains GPS and camera data
+Returns a summarized EXIF payload plus structured LLM analysis.
 
-**Getting zero tags:**
-- The image file exists but has no EXIF info embedded
-- This is normal for screenshots, PNGs, and some edited images
-- Solution: Use images taken directly from camera/phone
+### `POST /api/extract-exif-json`
 
-**Can't find uploaded images:**
-- Check: `backend/images/control/`
-- Images are saved there after upload
-- JSON files are also saved in the same folder with `/api/extract-exif-json` endpoint
+Returns the full EXIF payload and structured LLM analysis.
 
-## License
+Example response shape:
 
-See [LICENSE](LICENSE) file for details.
+```json
+{
+  "success": true,
+  "filename": "photo.jpg",
+  "json_file": "exif_data.json",
+  "data": {
+    "image_path": "backend/Images/control/photo.jpg",
+    "total_tags": 42,
+    "exif_data": {
+      "Make": "Apple",
+      "Model": "iPhone 15 Pro",
+      "DateTimeOriginal": "2026:04:19 21:30:00"
+    }
+  },
+  "llm_analysis": {
+    "risk_level": "HIGH",
+    "risk_score": 85,
+    "summary": "The metadata reveals device details and capture timing that could identify how and when this image was created.",
+    "key_findings": [
+      "GPS coordinates are present."
+    ],
+    "recommendations": [
+      "Strip EXIF metadata before sharing."
+    ],
+    "sensitive_fields": [
+      "GPSLatitude",
+      "GPSLongitude"
+    ],
+    "model": "qwen:7b",
+    "provider": "ollama"
+  }
+}
+```
 
-## Author
+### `POST /api/sanitize-image`
 
-GeoData Project - Based on school project for image metadata analysis.
+Returns a metadata-stripped copy of the uploaded image.
+
+## Notes
+
+- Uploaded and generated files are stored under `backend/Images/control/`
+- The frontend can target a different backend with `VITE_API_BASE_URL`
+- The current local metadata summary path is configured around `qwen:7b`
+- The backend can target a different Ollama host or model with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`
+- The AI summary only uses extracted metadata and does not analyze image pixels
+- Vision-only models are intentionally not used for the metadata summary path
+
+## Limitations
+
+- The app does not inspect image pixels for visible text, documents, or faces
+- If an image has no EXIF metadata, there is no AI summary to generate
+- Local summary quality depends on the local `qwen:7b` model response
+- Social-media platform scraping/downloader automation is intentionally out of scope
+
+## Verification
+
+- `npm run lint`
+- `npm run build`
+- `python -m compileall backend\main.py backend\local_LLM.py backend\extract_exif.py backend\sanitize_image.py`
+
+## Out of Scope
+
+The social-media image downloader / automation workflow is intentionally not implemented in this pass.
