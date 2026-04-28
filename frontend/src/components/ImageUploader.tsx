@@ -203,9 +203,11 @@ export default function ImageUploader() {
         visualAnalysis: data.visual_analysis ?? null,
         combinedAnalysis: data.combined_analysis ?? data.llm_analysis,
       });
-      if (data.llm_analysis.fallback_reason) {
+      const mergedAnalysis = data.combined_analysis ?? data.llm_analysis;
+
+      if (mergedAnalysis?.fallback_reason) {
         addLog(
-          `Metadata model returned a fallback after ${data.llm_analysis.latency_ms}ms: ${data.llm_analysis.fallback_reason}`,
+          `AI review fallback active after ${mergedAnalysis.latency_ms}ms: ${mergedAnalysis.fallback_reason}`,
           'warning',
         );
       }
@@ -215,9 +217,9 @@ export default function ImageUploader() {
           'warning',
         );
       }
-      if (!data.llm_analysis.fallback_reason) {
+      if (!mergedAnalysis?.fallback_reason) {
         addLog(
-          `Deep review complete in ${data.meta?.duration_ms ?? data.llm_analysis.latency_ms}ms${data.combined_analysis?.cached ? ' (cache)' : ''}`,
+          `Deep review complete in ${data.meta?.duration_ms ?? mergedAnalysis?.latency_ms ?? 0}ms${mergedAnalysis?.cached ? ' (cache)' : ''}`,
           'success',
         );
       }
