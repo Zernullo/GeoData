@@ -14,6 +14,7 @@ import type {
   LlmAnalysis,
   LlmHealthResponse,
   PipelineMeta,
+  VisualAnalysis,
 } from '../types/exif';
 import { compressPreview, validateImageFile } from '../utils/imageUtils';
 import { Header } from './upload/Header';
@@ -22,12 +23,48 @@ import { ResultsPanel } from './upload/ResultsPanel';
 import { Sidebar } from './upload/Sidebar';
 import { UploadZone } from './upload/UploadZone';
 
+type DeepAnalysisTrigger = 'auto' | 'manual';
+
+interface DeepAnalysisState {
+  llmAnalysis: LlmAnalysis | null;
+  visualAnalysis: VisualAnalysis | null;
+  combinedAnalysis: LlmAnalysis | null;
+}
+
+function buildExportPayload(
+  metadata: ExifData,
+  llmAnalysis: LlmAnalysis | null,
+  visualAnalysis: VisualAnalysis | null,
+  combinedAnalysis: LlmAnalysis | null,
+) {
+  return {
+    exported_at: new Date().toISOString(),
+    metadata,
+    analysis: combinedAnalysis ?? llmAnalysis,
+    metadata_analysis: llmAnalysis,
+    visual_analysis: visualAnalysis,
+  };
+}
+
+function getModelAvailabilityMessage(
+  available: boolean,
+  readyLabel: string,
+  unavailableLabel: string,
+) {
+  return {
+    message: available ? readyLabel : unavailableLabel,
+    level: available ? 'success' as const : 'warning' as const,
+  };
+}
+
 export default function ImageUploader() {
   const [file, setFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [result, setResult] = useState<ExifData | null>(null);
   const [llmAnalysis, setLlmAnalysis] = useState<LlmAnalysis | null>(null);
+  const [visualAnalysis, setVisualAnalysis] = useState<VisualAnalysis | null>(null);
+  const [combinedAnalysis, setCombinedAnalysis] = useState<LlmAnalysis | null>(null);
   const [llmHealth, setLlmHealth] = useState<LlmHealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -36,11 +73,27 @@ export default function ImageUploader() {
   const [retryCount, setRetryCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pipeline, setPipeline] = useState<PipelineMeta | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(null);
 
   const { history, addToHistory, clearHistory } = useExifHistory();
   const { logs, addLog, clearLogs } = useTerminalLog(UI_CONFIG.maxLogEntries);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeScanIdRef = useRef(0);
+
+  const resetAnalysisState = useCallback(() => {
+    setLlmAnalysis(null);
+    setVisualAnalysis(null);
+    setCombinedAnalysis(null);
+    setImagePath(null);
+    setAiError(null);
+    setAiLoading(false);
+  }, []);
+
+  const applyDeepAnalysisState = useCallback((analysisState: DeepAnalysisState) => {
+    setLlmAnalysis(analysisState.llmAnalysis);
+    setVisualAnalysis(analysisState.visualAnalysis);
+    setCombinedAnalysis(analysisState.combinedAnalysis);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -56,12 +109,18 @@ export default function ImageUploader() {
         if (!active) return;
 
         setLlmHealth(payload);
-        addLog(
-          payload.available
-            ? `Local model detected: ${payload.model}`
-            : `Configured model not ready yet: ${payload.model}`,
-          payload.available ? 'success' : 'warning',
+        const textModelStatus = getModelAvailabilityMessage(
+          payload.text_available,
+          `Local text model detected: ${payload.text_model}`,
+          `Configured text model not ready yet: ${payload.text_model}`,
         );
+        const visionModelStatus = getModelAvailabilityMessage(
+          payload.vision_available,
+          `Local vision model detected: ${payload.vision_model}`,
+          `Vision model not ready yet: ${payload.vision_model}`,
+        );
+        addLog(textModelStatus.message, textModelStatus.level);
+        addLog(visionModelStatus.message, visionModelStatus.level);
       } catch (healthError) {
         if (!active) return;
 
@@ -83,12 +142,7 @@ export default function ImageUploader() {
     if (!result) return;
 
     try {
-      const exportPayload = {
-        exported_at: new Date().toISOString(),
-        metadata: result,
-        analysis: llmAnalysis,
-      };
-
+      const exportPayload = buildExportPayload(result, llmAnalysis, visualAnalysis, combinedAnalysis);
       const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -100,22 +154,23 @@ export default function ImageUploader() {
     } catch (exportError) {
       addLog(`Export failed: ${exportError instanceof Error ? exportError.message : 'Unknown error'}`, 'error');
     }
-  }, [addLog, llmAnalysis, result]);
+  }, [addLog, combinedAnalysis, llmAnalysis, result, visualAnalysis]);
 
   const runDeepAnalysis = useCallback(async (
     exifData: ExifData,
-    trigger: 'auto' | 'manual',
+    currentImagePath: string | null,
+    trigger: DeepAnalysisTrigger,
     scanId: number,
   ) => {
     if (scanId !== activeScanIdRef.current) return;
-    if (Object.keys(exifData).length === 0) return;
+    if (Object.keys(exifData).length === 0 && !currentImagePath) return;
 
     setAiLoading(true);
     setAiError(null);
     addLog(
       trigger === 'auto'
-        ? 'Starting background metadata analysis...'
-        : 'Refreshing metadata analysis...',
+        ? 'Starting background metadata + visual analysis...'
+        : 'Refreshing metadata + visual analysis...',
       'info',
     );
 
@@ -127,6 +182,7 @@ export default function ImageUploader() {
         },
         body: JSON.stringify({
           exif_data: exifData,
+          image_path: currentImagePath,
           profile: 'deep',
         }),
       });
@@ -142,15 +198,26 @@ export default function ImageUploader() {
         throw new Error(data.error || 'AI review failed');
       }
 
-      setLlmAnalysis(data.llm_analysis);
+      applyDeepAnalysisState({
+        llmAnalysis: data.llm_analysis,
+        visualAnalysis: data.visual_analysis ?? null,
+        combinedAnalysis: data.combined_analysis ?? data.llm_analysis,
+      });
       if (data.llm_analysis.fallback_reason) {
         addLog(
-          `AI returned an incomplete fallback after ${data.llm_analysis.latency_ms}ms: ${data.llm_analysis.fallback_reason}`,
+          `Metadata model returned a fallback after ${data.llm_analysis.latency_ms}ms: ${data.llm_analysis.fallback_reason}`,
           'warning',
         );
-      } else {
+      }
+      if (data.visual_analysis?.fallback_reason) {
         addLog(
-          `AI review complete in ${data.llm_analysis.latency_ms}ms${data.llm_analysis.cached ? ' (cache)' : ''}`,
+          `Vision model fallback: ${data.visual_analysis.fallback_reason}`,
+          'warning',
+        );
+      }
+      if (!data.llm_analysis.fallback_reason) {
+        addLog(
+          `Deep review complete in ${data.meta?.duration_ms ?? data.llm_analysis.latency_ms}ms${data.combined_analysis?.cached ? ' (cache)' : ''}`,
           'success',
         );
       }
@@ -165,7 +232,7 @@ export default function ImageUploader() {
         setAiLoading(false);
       }
     }
-  }, [addLog]);
+  }, [addLog, applyDeepAnalysisState]);
 
   const handleUpload = useCallback(async (isRetry = false) => {
     if (!file) {
@@ -179,11 +246,9 @@ export default function ImageUploader() {
 
     setExtracting(true);
     setError(null);
-    setAiError(null);
-    setAiLoading(false);
     setResult(null);
     setPipeline(null);
-    setLlmAnalysis(null);
+    resetAnalysisState();
     addLog('Starting image scan...', 'info');
 
     try {
@@ -220,19 +285,28 @@ export default function ImageUploader() {
 
       setResult(exifData);
       setPipeline(data.pipeline ?? null);
-      setLlmAnalysis(count > 0 ? (data.llm_analysis ?? null) : null);
+      applyDeepAnalysisState({
+        llmAnalysis: null,
+        visualAnalysis: null,
+        combinedAnalysis: null,
+      });
+      setImagePath(data.data.image_path ?? null);
 
       addLog(`Metadata extracted in ${data.pipeline?.extract_ms ?? 0}ms`, 'success');
       addLog(`Found ${count} EXIF tags`, 'info');
 
       if (count === 0) {
-        addLog('No EXIF metadata found. Skipping AI summary refresh.', 'warning');
-        setRetryCount(0);
-        return;
+        if (!llmHealth?.vision_available) {
+          addLog('No EXIF metadata found. Skipping deeper AI review because no vision model is ready.', 'warning');
+          setRetryCount(0);
+          return;
+        }
+
+        addLog('No EXIF metadata found. Continuing with vision-only privacy review.', 'warning');
       }
 
-      if (!llmHealth?.available) {
-        addLog('No text-based local model is ready. Using metadata scan without AI summary.', 'warning');
+      if (!llmHealth?.text_available && !llmHealth?.vision_available) {
+        addLog('No local text or vision model is ready. Using metadata scan without deeper AI review.', 'warning');
         setRetryCount(0);
         return;
       }
@@ -251,7 +325,7 @@ export default function ImageUploader() {
       });
 
       setRetryCount(0);
-      void runDeepAnalysis(exifData, 'auto', scanId);
+      void runDeepAnalysis(exifData, data.data.image_path ?? null, 'auto', scanId);
     } catch (uploadError) {
       if (scanId !== activeScanIdRef.current) {
         return;
@@ -279,7 +353,7 @@ export default function ImageUploader() {
         setExtracting(false);
       }
     }
-  }, [addLog, addToHistory, file, llmHealth?.available, preview, retryCount, runDeepAnalysis]);
+  }, [addLog, addToHistory, applyDeepAnalysisState, file, llmHealth?.text_available, llmHealth?.vision_available, preview, resetAnalysisState, retryCount, runDeepAnalysis]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -324,9 +398,7 @@ export default function ImageUploader() {
     setFile(selectedFile);
     setResult(null);
     setPipeline(null);
-    setLlmAnalysis(null);
-    setAiError(null);
-    setAiLoading(false);
+    resetAnalysisState();
     setError(null);
 
     addLog(`Loaded ${selectedFile.name}`, 'success');
@@ -340,10 +412,15 @@ export default function ImageUploader() {
       setPreview(null);
       addLog('Preview unavailable, continuing without thumbnail', 'warning');
     }
-  }, [addLog]);
+  }, [addLog, resetAnalysisState]);
 
   const primaryActionLabel = extracting ? '[ SCANNING IMAGE... ]' : '[ START SCAN ]';
-  const canRunDeepAnalysis = result ? Object.keys(result).length > 0 && !aiLoading && Boolean(llmHealth?.available) : false;
+  const canRunDeepAnalysis = result
+    ? !aiLoading && (
+        (Object.keys(result).length > 0 && Boolean(llmHealth?.text_available || llmHealth?.vision_available))
+        || Boolean(imagePath && llmHealth?.vision_available)
+      )
+    : false;
 
   return (
     <div className="page-shell animate-fadeIn">
@@ -373,8 +450,8 @@ export default function ImageUploader() {
             </div>
             <div className="pipeline-stage pipeline-stage-accent">
               <span className="pipeline-label">Step 2</span>
-              <strong>Build AI metadata summary</strong>
-              <p>The local model summarizes metadata risk after the EXIF scan finishes.</p>
+              <strong>Build hybrid privacy summary</strong>
+              <p>The local text and vision models expand the scan after the EXIF pass finishes.</p>
             </div>
           </div>
 
@@ -392,12 +469,12 @@ export default function ImageUploader() {
               <div className="status-spinner" />
               <div>
                 <p className="status-title">
-                  {extracting ? 'Reading metadata from the image' : 'Generating the AI privacy summary'}
+                  {extracting ? 'Reading metadata from the image' : 'Loading the local LLM chat'}
                 </p>
                 <p className="status-caption">
                   {extracting
                     ? 'You will see the metadata as soon as extraction finishes.'
-                    : 'The metadata is already available below while the AI summary finishes.'}
+                    : 'The metadata is already ready while the local LLM and vision review finish in the background.'}
                 </p>
               </div>
             </div>
@@ -421,14 +498,16 @@ export default function ImageUploader() {
               <ResultsPanel
                 result={result}
                 llmAnalysis={llmAnalysis}
+                visualAnalysis={visualAnalysis}
+                combinedAnalysis={combinedAnalysis}
                 pipeline={pipeline}
                 aiLoading={aiLoading}
                 aiError={aiError}
                 canRunDeepAnalysis={canRunDeepAnalysis}
                 onRunDeepAnalysis={() => {
                   const currentResult = result;
-                  if (currentResult && Object.keys(currentResult).length > 0) {
-                    void runDeepAnalysis(currentResult, 'manual', activeScanIdRef.current);
+                  if (currentResult && (Object.keys(currentResult).length > 0 || imagePath)) {
+                    void runDeepAnalysis(currentResult, imagePath, 'manual', activeScanIdRef.current);
                   }
                 }}
                 onDownload={downloadJSON}

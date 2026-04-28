@@ -21,6 +21,9 @@ except ImportError:  # pragma: no cover - optional dependency
 if register_heif_opener is not None:
     register_heif_opener()
 
+# EXIF IFD section names for structured metadata extraction
+EXIF_IFD_SECTIONS = ("0th", "Exif", "GPS", "1st")
+
 
 def extract_exif(image_path, output_json_path=None):
     readable = {}
@@ -31,7 +34,7 @@ def extract_exif(image_path, output_json_path=None):
         if image.format in ("JPEG", "JPG"):
             try:
                 exif_dict = piexif.load(str(image_path))
-                for ifd_name in ("0th", "Exif", "GPS", "1st"):
+                for ifd_name in EXIF_IFD_SECTIONS:
                     ifd = exif_dict.get(ifd_name, {})
                     for tag, value in ifd.items():
                         tag_name = piexif.TAGS[ifd_name][tag]["name"]
@@ -49,7 +52,7 @@ def extract_exif(image_path, output_json_path=None):
 
         elif image.format == "TIFF":
             exif_dict = piexif.load(str(image_path))
-            for ifd_name in ("0th", "Exif", "GPS", "1st"):
+            for ifd_name in EXIF_IFD_SECTIONS:
                 ifd = exif_dict.get(ifd_name, {})
                 for tag, value in ifd.items():
                     tag_name = piexif.TAGS[ifd_name][tag]["name"]
@@ -78,7 +81,6 @@ def extract_exif(image_path, output_json_path=None):
         }
         with open(str(output_json_path), "w", encoding="utf-8") as output_file:
             json.dump(output_data, output_file, indent=2, ensure_ascii=False)
-        print(f"EXIF JSON saved to: {output_json_path}")
 
     return readable
 

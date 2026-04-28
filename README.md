@@ -1,6 +1,6 @@
 # GeoData
 
-GeoData is a full-stack image metadata privacy analysis app for research and demos. It extracts EXIF data, highlights sensitive fields like GPS coordinates and timestamps, runs a local metadata review through Ollama, and can export a sanitized copy of the image.
+GeoData is a full-stack image privacy analysis app for research and demos. It extracts EXIF data, highlights sensitive fields like GPS coordinates and timestamps, runs a local metadata review through Ollama, optionally inspects the image itself for visible privacy leaks, and can export a sanitized copy of the image.
 
 ## What It Does
 
@@ -8,6 +8,7 @@ GeoData is a full-stack image metadata privacy analysis app for research and dem
 - Extract raw EXIF metadata in the FastAPI backend
 - Score privacy risk from sensitive metadata fields
 - Generate a structured privacy summary from the EXIF metadata with a local Ollama model
+- Optionally run a local vision model to flag visible privacy leaks in the scene or background
 - Download a metadata-stripped copy of the image
 
 ## Sample Cases
@@ -25,7 +26,7 @@ GeoData is a full-stack image metadata privacy analysis app for research and dem
 ### 3. No EXIF metadata
 
 - Image has no readable EXIF payload
-- Expected result: metadata scan still works, but the AI summary is intentionally skipped
+- Expected result: metadata scan still works, and a vision-capable local model can still review visible privacy leaks
 
 ## Stack
 
@@ -41,7 +42,8 @@ GeoData is a full-stack image metadata privacy analysis app for research and dem
 - Pillow
 - piexif
 - pillow-heif
-- Ollama with the local text model `qwen:7b`
+- Ollama with the local model `gemma3:4b`
+- Ollama with a local vision-capable model such as `gemma3:4b`
 
 ## Project Structure
 
@@ -83,13 +85,13 @@ If someone else is setting this project up for the first time, use this sequence
 Windows PowerShell:
 
 ```powershell
-"$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull qwen:7b
+"$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" pull gemma3:4b
 ```
 
 If `ollama` is already on your `PATH`, you can also run:
 
 ```powershell
-ollama pull qwen:7b
+ollama pull gemma3:4b
 ```
 
 ### 3. Verify Ollama Is Ready
@@ -98,7 +100,7 @@ ollama pull qwen:7b
 ollama list
 ```
 
-You should see `qwen:7b` in the output.
+You should see `gemma3:4b` in the output.
 
 ### 4. Keep Ollama Running
 
@@ -110,11 +112,13 @@ If you use a different Ollama host or need to point to the same local model expl
 
 - `OLLAMA_BASE_URL`
 - `OLLAMA_MODEL`
+- `OLLAMA_VISION_MODEL`
 
 Example in PowerShell:
 
 ```powershell
-$env:OLLAMA_MODEL="qwen:7b"
+$env:OLLAMA_MODEL="gemma3:4b"
+$env:OLLAMA_VISION_MODEL="gemma3:4b"
 ```
 
 ## Backend Setup
@@ -170,6 +174,8 @@ EXIF parser + rules engine
     ->
 optional Ollama text summary
     ->
+optional Ollama vision summary
+    ->
 results UI + sanitize/export actions
 ```
 
@@ -181,7 +187,7 @@ Health check.
 
 ### `GET /api/health/llm`
 
-Reports the configured Ollama model and base URL.
+Reports the configured Ollama text and vision models plus their availability.
 
 ### `POST /api/extract-exif`
 
@@ -221,7 +227,7 @@ Example response shape:
       "GPSLatitude",
       "GPSLongitude"
     ],
-    "model": "qwen:7b",
+    "model": "gemma3:4b",
     "provider": "ollama"
   }
 }
@@ -235,16 +241,16 @@ Returns a metadata-stripped copy of the uploaded image.
 
 - Uploaded and generated files are stored under `backend/Images/control/`
 - The frontend can target a different backend with `VITE_API_BASE_URL`
-- The current local metadata summary path is configured around `qwen:7b`
-- The backend can target a different Ollama host or model with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`
-- The AI summary only uses extracted metadata and does not analyze image pixels
-- Vision-only models are intentionally not used for the metadata summary path
+- The current local metadata summary path is configured around `gemma3:4b`
+- The default local vision summary path prefers `gemma3:4b` when available
+- The backend can target a different Ollama host or model with `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, and `OLLAMA_VISION_MODEL`
+- The rapid scan still uses metadata only so the first response stays fast
+- The deeper review can merge metadata findings with vision-based scene findings
 
 ## Limitations
 
-- The app does not inspect image pixels for visible text, documents, or faces
-- If an image has no EXIF metadata, there is no AI summary to generate
-- Local summary quality depends on the local `qwen:7b` model response
+- Visual review quality depends on the local vision model and may miss subtle clues
+- Local summary quality depends on the local `gemma3:4b` responses
 - Social-media platform scraping/downloader automation is intentionally out of scope
 
 ## Verification

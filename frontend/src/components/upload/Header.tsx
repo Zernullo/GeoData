@@ -8,7 +8,7 @@ export function Header({ llmHealth }: HeaderProps) {
   const workflowSteps = [
     'Upload an image',
     'Review the quick metadata scan',
-    'Read the AI metadata summary',
+    'Read the hybrid metadata + visual summary',
   ];
 
   return (
@@ -18,26 +18,26 @@ export function Header({ llmHealth }: HeaderProps) {
           <p className="eyebrow">GeoData Privacy Lab</p>
           <h1 className="hero-title">
             Upload one image,
-            <span className="hero-title-accent"> get a privacy review from the metadata automatically.</span>
+            <span className="hero-title-accent"> get a privacy review from the metadata and visible scene automatically.</span>
           </h1>
           <p className="hero-subtitle">
             GeoData extracts EXIF metadata immediately, shows the privacy-sensitive fields in plain language,
-            and then enriches the result with your local model in the background.
+            and then enriches the result with local text and vision models in the background.
           </p>
         </div>
 
         <div className="hero-meta">
           <div className="hero-stat">
-            <span className="hero-stat-label">AI Model</span>
-            <strong>{llmHealth?.model ?? 'Checking local model...'}</strong>
+            <span className="hero-stat-label">Text Model</span>
+            <strong>{llmHealth?.text_model ?? llmHealth?.model ?? 'Checking local model...'}</strong>
+          </div>
+          <div className="hero-stat">
+            <span className="hero-stat-label">Vision Model</span>
+            <strong>{llmHealth?.vision_model ?? 'Checking vision model...'}</strong>
           </div>
           <div className="hero-stat">
             <span className="hero-stat-label">Workflow</span>
-            <strong>Single automatic scan</strong>
-          </div>
-          <div className="hero-stat">
-            <span className="hero-stat-label">Backend</span>
-            <strong>{llmHealth?.base_url ?? 'http://localhost:8000'}</strong>
+            <strong>Metadata + visual review</strong>
           </div>
         </div>
       </div>
@@ -56,8 +56,16 @@ export function Header({ llmHealth }: HeaderProps) {
         </div>
 
         <div className="status-pill">
-          <span className={llmHealth?.available ? 'status-dot status-dot-live' : 'status-dot'} />
-          {llmHealth ? (llmHealth.available ? 'Local model detected' : 'Model not ready') : 'Checking Ollama status'}
+          <span className={llmHealth?.text_available || llmHealth?.vision_available ? 'status-dot status-dot-live' : 'status-dot'} />
+          {llmHealth
+            ? llmHealth.text_available && llmHealth.vision_available
+              ? 'Text + vision models detected'
+              : llmHealth.text_available
+                ? 'Text model detected'
+                : llmHealth.vision_available
+                  ? 'Vision model detected'
+                  : 'Models not ready'
+            : 'Checking Ollama status'}
         </div>
       </div>
     </header>

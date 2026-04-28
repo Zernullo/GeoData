@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 
 import { API_ENDPOINTS } from '../../constants/config';
-import type { ExifData, LlmAnalysis, PipelineMeta } from '../../types/exif';
+import type { ExifData, LlmAnalysis, PipelineMeta, VisualAnalysis } from '../../types/exif';
 import { formatExifValue, getSensitiveKeys, groupExifData, riskScore } from '../../utils/exifUtils';
 
 interface ResultsPanelProps {
   result: ExifData;
   llmAnalysis?: LlmAnalysis | null;
+  visualAnalysis?: VisualAnalysis | null;
+  combinedAnalysis?: LlmAnalysis | null;
   pipeline?: PipelineMeta | null;
   aiLoading: boolean;
   aiError: string | null;
@@ -17,6 +19,97 @@ interface ResultsPanelProps {
 }
 
 type TabType = 'overview' | 'categories' | 'raw' | 'ai';
+
+interface RiskDisplay {
+  score: number;
+  level: string;
+  color: string;
+}
+
+function buildAiSourceLabel(
+  activeAnalysis: LlmAnalysis | null | undefined,
+  aiLoading: boolean,
+): string {
+  if (!activeAnalysis) {
+    return aiLoading ? 'Loading local LLM' : 'Waiting for local LLM';
+  }
+
+  if (activeAnalysis.model === 'rules-engine') {
+    return 'Local LLM unavailable';
+  }
+
+  if (activeAnalysis.analysis_mode === 'hybrid') {
+    return `Hybrid (${activeAnalysis.model})`;
+  }
+
+  return `Local LLM (${activeAnalysis.model})`;
+}
+
+function buildSummaryAvailabilityLabel(
+  activeAnalysis: LlmAnalysis | null | undefined,
+  aiLoading: boolean,
+  hasMetadata: boolean,
+): string {
+  if (activeAnalysis) {
+    return 'Available';
+  }
+
+  if (aiLoading) {
+    return 'Loading LLM chat';
+  }
+
+  return hasMetadata ? 'Waiting for LLM' : 'Not available';
+}
+
+function buildSummaryText(
+  activeAnalysis: LlmAnalysis | null | undefined,
+  aiLoading: boolean,
+): string {
+  if (activeAnalysis?.summary) {
+    return activeAnalysis.summary;
+  }
+
+  if (aiLoading) {
+    return 'The metadata scan is ready. The local LLM chat is loading now.';
+  }
+
+  return 'The metadata scan is ready. The AI summary will appear automatically when the local LLM finishes.';
+}
+
+function buildMeterCaption(
+  activeAnalysis: LlmAnalysis | null | undefined,
+  aiLoading: boolean,
+  pipeline: PipelineMeta | null | undefined,
+): string {
+  if (activeAnalysis?.analysis_mode === 'hybrid') {
+    return `Hybrid review finished in ${activeAnalysis.latency_ms}ms${activeAnalysis.cached ? ' - cache hit' : ''}`;
+  }
+
+  if (activeAnalysis) {
+    return `AI summary finished in ${activeAnalysis.latency_ms}ms${activeAnalysis.cached ? ' - cache hit' : ''}`;
+  }
+
+  if (aiLoading) {
+    return 'Local LLM chat is loading';
+  }
+
+  return `Metadata extracted in ${pipeline?.extract_ms ?? 0}ms`;
+}
+
+function buildActiveRisk(
+  activeAnalysis: LlmAnalysis | null | undefined,
+  fallbackRisk: ReturnType<typeof riskScore>,
+): RiskDisplay {
+  if (!activeAnalysis) {
+    return fallbackRisk;
+  }
+
+  return {
+    score: activeAnalysis.risk_score,
+    level: activeAnalysis.risk_level,
+    color: fallbackRisk.color,
+  };
+}
 
 function buildOverviewRows(exif: ExifData): Array<{ label: string; value: string }> {
   const priorityRows = [
@@ -57,6 +150,8 @@ function buildOverviewRows(exif: ExifData): Array<{ label: string; value: string
 export function ResultsPanel({
   result,
   llmAnalysis,
+  visualAnalysis,
+  combinedAnalysis,
   pipeline,
   aiLoading,
   aiError,
@@ -71,19 +166,14 @@ export function ResultsPanel({
   const hasMetadata = Object.keys(result).length > 0;
 
   const fallbackRisk = riskScore(result);
-  const activeRisk = llmAnalysis
-    ? { score: llmAnalysis.risk_score, level: llmAnalysis.risk_level, color: fallbackRisk.color }
-    : fallbackRisk;
+  const activeAnalysis = combinedAnalysis ?? llmAnalysis;
+  const activeRisk = buildActiveRisk(activeAnalysis, fallbackRisk);
   const sensitiveKeys = getSensitiveKeys(result);
   const groupedData = groupExifData(result);
   const overviewRows = useMemo(() => buildOverviewRows(result), [result]);
   const rawJson = useMemo(() => JSON.stringify(result, null, 2), [result]);
-  const aiSourceLabel = llmAnalysis
-    ? llmAnalysis.analysis_mode === 'ollama'
-      ? `Local LLM (${llmAnalysis.model})`
-      : 'Rules Engine'
-    : 'Rules Engine';
-  const summaryAvailabilityLabel = llmAnalysis ? 'Available' : hasMetadata ? 'Metadata only' : 'Not available';
+  const aiSourceLabel = buildAiSourceLabel(activeAnalysis, aiLoading);
+  const summaryAvailabilityLabel = buildSummaryAvailabilityLabel(activeAnalysis, aiLoading, hasMetadata);
 
   const tabs: Array<{ id: TabType; label: string }> = [
     { id: 'overview', label: 'Overview' },
@@ -134,7 +224,7 @@ export function ResultsPanel({
             {activeRisk.level}
           </h2>
           <p className="results-summary">
-            {llmAnalysis?.summary ?? 'The metadata scan is ready. The AI summary will appear automatically when it finishes.'}
+            {buildSummaryText(activeAnalysis, aiLoading)}
           </p>
         </div>
 
@@ -144,11 +234,7 @@ export function ResultsPanel({
           <div className="meter-track">
             <div className="meter-fill" style={{ width: `${activeRisk.score}%`, background: activeRisk.color }} />
           </div>
-          <span className="results-meter-caption">
-            {llmAnalysis?.analysis_mode === 'ollama'
-              ? `AI summary finished in ${llmAnalysis.latency_ms}ms${llmAnalysis.cached ? ' - cache hit' : ''}`
-              : `Metadata extracted in ${pipeline?.extract_ms ?? 0}ms`}
-          </span>
+          <span className="results-meter-caption">{buildMeterCaption(activeAnalysis, aiLoading, pipeline)}</span>
         </div>
       </div>
 
@@ -176,7 +262,7 @@ export function ResultsPanel({
           <p className="analysis-card-label">What counts as sensitive metadata?</p>
           <p className="metadata-help-copy">
             GPS coordinates, timestamps, device names, software versions, and serial-like fields can expose where,
-            when, and how a photo was created.
+            when, and how a photo was created. Background scenery, documents, signage, and visible screens can also leak context even after metadata is stripped.
           </p>
         </div>
         <div className="metadata-help-chips">
@@ -185,6 +271,7 @@ export function ResultsPanel({
           <span className="metadata-help-chip">Device</span>
           <span className="metadata-help-chip">Software</span>
           <span className="metadata-help-chip">Serial IDs</span>
+          <span className="metadata-help-chip">Background clues</span>
         </div>
       </div>
 
@@ -199,12 +286,25 @@ export function ResultsPanel({
         <div className={llmAnalysis?.analysis_mode === 'ollama' ? 'analysis-step analysis-step-done' : 'analysis-step'}>
           <span className="analysis-step-index">2</span>
           <div>
-            <strong>AI summary</strong>
+            <strong>Metadata model</strong>
             <p>
               {aiLoading
-                ? 'Generating now'
+                ? 'Loading LLM chat'
                 : llmAnalysis?.analysis_mode === 'ollama'
                   ? `Ready from ${llmAnalysis.model}`
+                  : 'Unavailable'}
+            </p>
+          </div>
+        </div>
+        <div className={visualAnalysis?.analysis_mode === 'vision' ? 'analysis-step analysis-step-done' : 'analysis-step'}>
+          <span className="analysis-step-index">3</span>
+          <div>
+            <strong>Vision model</strong>
+            <p>
+              {aiLoading
+                ? 'Inspecting visible scene'
+                : visualAnalysis?.analysis_mode === 'vision'
+                  ? `Ready from ${visualAnalysis.model}`
                   : 'Unavailable'}
             </p>
           </div>
@@ -273,7 +373,7 @@ export function ResultsPanel({
         {activeTab === 'ai' && (
           <div className="tab-panel-shell">
             <div className="analysis-panel">
-            {llmAnalysis ? (
+            {activeAnalysis ? (
               <>
                 <div className="ai-section">
                   <p className="analysis-card-label">Summary source</p>
@@ -281,38 +381,71 @@ export function ResultsPanel({
                 </div>
 
                 <div className="ai-section">
-                  <p className="analysis-card-label">Summary</p>
-                  <p>{llmAnalysis.summary}</p>
+                  <p className="analysis-card-label">Combined summary</p>
+                  <p>{activeAnalysis.summary}</p>
                 </div>
 
                 <div className="ai-section">
-                  <p className="analysis-card-label">Key findings</p>
+                  <p className="analysis-card-label">Combined findings</p>
                   <div className="analysis-bullets">
-                    {llmAnalysis.key_findings.map((finding) => (
+                    {activeAnalysis.key_findings.map((finding) => (
                       <div key={finding}>- {finding}</div>
                     ))}
                   </div>
                 </div>
 
                 <div className="ai-section">
-                  <p className="analysis-card-label">Recommendations</p>
+                  <p className="analysis-card-label">Combined recommendations</p>
                   <div className="analysis-bullets">
-                    {llmAnalysis.recommendations.map((recommendation) => (
+                    {activeAnalysis.recommendations.map((recommendation) => (
                       <div key={recommendation}>- {recommendation}</div>
                     ))}
                   </div>
                 </div>
 
                 <div className="ai-section">
-                  <p className="analysis-card-label">Attacker Simulation</p>
-                  <p>{llmAnalysis.attacker_simulation}</p>
+                  <p className="analysis-card-label">Combined attacker simulation</p>
+                  <p>{activeAnalysis.attacker_simulation}</p>
                 </div>
+
+                {llmAnalysis && llmAnalysis.model !== 'rules-engine' && (
+                  <div className="ai-section">
+                    <p className="analysis-card-label">Metadata analysis</p>
+                    <p>{llmAnalysis.summary}</p>
+                  </div>
+                )}
+
+                {visualAnalysis && (
+                  <>
+                    <div className="ai-section">
+                      <p className="analysis-card-label">Visual analysis</p>
+                      <p>{visualAnalysis.summary}</p>
+                    </div>
+                    {visualAnalysis.exposed_elements.length > 0 && (
+                      <div className="ai-section">
+                        <p className="analysis-card-label">Visible risk elements</p>
+                        <div className="analysis-bullets">
+                          {visualAnalysis.exposed_elements.map((element) => (
+                            <div key={element}>- {element}</div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {activeAnalysis.fallback_reason && (
+                  <div className="ai-section">
+                    <p className="analysis-card-label">Fallback reason</p>
+                    <p>{activeAnalysis.fallback_reason}</p>
+                  </div>
+                )}
               </>
             ) : (
               <div className="ai-section">
                 <p>
                   {hasMetadata
-                    ? 'The metadata is ready. An AI summary is only available when a text-based local model is installed.'
+                    ? 'The metadata is ready. A deeper AI summary is only available when a local text or vision model is installed.'
                     : 'No metadata was found in this image, so no AI summary is available.'}
                 </p>
               </div>
@@ -320,8 +453,8 @@ export function ResultsPanel({
 
             {aiLoading && (
               <div className="ai-section">
-                <p className="analysis-card-label">Background review</p>
-                <p>The metadata is already ready. The AI summary is still being generated.</p>
+                <p className="analysis-card-label">LLM loading</p>
+                <p>The metadata is already ready. The local LLM chat and vision review are still loading.</p>
               </div>
             )}
 

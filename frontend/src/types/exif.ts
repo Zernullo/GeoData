@@ -21,7 +21,8 @@ export interface ExifData {
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 export type AnalysisProfile = 'rapid' | 'deep';
-export type AnalysisMode = 'heuristic' | 'ollama';
+export type AnalysisMode = 'heuristic' | 'ollama' | 'hybrid';
+export type VisualAnalysisMode = 'vision' | 'unavailable';
 
 export interface LlmAnalysis {
   risk_level: RiskLevel;
@@ -34,6 +35,22 @@ export interface LlmAnalysis {
   model: string;
   provider: string;
   analysis_mode: AnalysisMode;
+  fallback_reason?: string | null;
+  cached: boolean;
+  latency_ms: number;
+}
+
+export interface VisualAnalysis {
+  risk_level: RiskLevel;
+  risk_score: number;
+  summary: string;
+  key_findings: string[];
+  recommendations: string[];
+  exposed_elements: string[];
+  attacker_simulation: string;
+  model: string;
+  provider: string;
+  analysis_mode: VisualAnalysisMode;
   fallback_reason?: string | null;
   cached: boolean;
   latency_ms: number;
@@ -71,6 +88,8 @@ export interface ExtractExifJsonResponse {
 export interface AnalyzeExifResponse {
   success: boolean;
   llm_analysis?: LlmAnalysis | null;
+  visual_analysis?: VisualAnalysis | null;
+  combined_analysis?: LlmAnalysis | null;
   meta?: AnalysisMeta;
   error?: string;
 }
@@ -80,6 +99,10 @@ export interface LlmHealthResponse {
   model: string;
   base_url: string;
   recommended_profile: AnalysisProfile;
+  text_available: boolean;
+  text_model: string;
+  vision_available: boolean;
+  vision_model: string;
 }
 
 export interface Upload {
