@@ -12,6 +12,7 @@ import io
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
@@ -222,7 +223,8 @@ async def save_upload(file: UploadFile) -> Path:
     if not contents:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    target_path = IMAGES_DIR / filename
+    unique_name = f"{Path(filename).stem}-{uuid.uuid4().hex}{Path(filename).suffix}"
+    target_path = IMAGES_DIR / unique_name
     with open(target_path, "wb") as output_file:
         output_file.write(contents)
 

@@ -443,11 +443,13 @@ export function ResultsPanel({
               </>
             ) : (
               <div className="ai-section">
-                <p>
-                  {hasMetadata
-                    ? 'The metadata is ready. A deeper AI summary is only available when a local text or vision model is installed.'
-                    : 'No metadata was found in this image, so no AI summary is available.'}
-                </p>
+                {!aiLoading && (
+                  <p>
+                    {hasMetadata
+                      ? 'The metadata is ready. A deeper AI summary is only available when a local text or vision model is installed.'
+                      : 'No metadata was found in this image, so no AI summary is available.'}
+                  </p>
+                )}
               </div>
             )}
 

@@ -205,6 +205,16 @@ def get_visual_cache_key(image_path: Path, model_name: str) -> str:
         stat = image_path.stat()
         digest.update(str(stat.st_mtime_ns).encode("utf-8"))
         digest.update(str(stat.st_size).encode("utf-8"))
+
+        # Include content fingerprint to avoid stale cache hits when a file path is reused.
+        # Reading in chunks keeps memory usage bounded for large images.
+        with image_path.open("rb") as image_file:
+            content_digest = hashlib.sha256()
+            for chunk in iter(lambda: image_file.read(1024 * 1024), b""):
+                if not chunk:
+                    break
+                content_digest.update(chunk)
+        digest.update(content_digest.digest())
     except OSError:
         pass
     return digest.hexdigest()
@@ -282,10 +292,6 @@ def analyze_image_privacy_with_vision(image_path: str | Path | None) -> VisualPr
             fallback_reason="No local vision-capable Ollama model is installed.",
         )
 
-    cached_analysis = get_cached_analysis(get_visual_cache_key(path, model_name), VisualPrivacyAnalysis)
-    if cached_analysis is not None:
-        return cached_analysis
-
     started_at = time.perf_counter()
 
     try:
@@ -314,8 +320,6 @@ def analyze_image_privacy_with_vision(image_path: str | Path | None) -> VisualPr
         }
     )
 
-    cache_analysis(get_visual_cache_key(path, model_name), enriched)
-
     return enriched
 
 
@@ -336,6 +340,7 @@ def generate_with_ollama_vision(prompt: str, image_path: Path, model_name: str) 
             model_name=model_name,
             images=[encode_image_file(image_path)],
             num_ctx=max(OLLAMA_NUM_CTX, 1024),
+            keep_alive="0",
         ),
         timeout=OLLAMA_TIMEOUT_SECONDS,
     )
@@ -747,13 +752,14 @@ def build_generate_payload(
     model_name: str,
     images: list[str] | None = None,
     num_ctx: int = OLLAMA_NUM_CTX,
+    keep_alive: str = OLLAMA_KEEP_ALIVE,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
         "stream": False,
         "format": "json",
-        "keep_alive": OLLAMA_KEEP_ALIVE,
+        "keep_alive": keep_alive,
         "options": {
             "temperature": 0,
             "top_p": 0.85,
