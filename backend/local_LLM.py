@@ -381,29 +381,124 @@ def build_prompt(exif_json: dict[str, Any]) -> str:
 
 def build_vision_prompt() -> str:
     example = {
-        "risk_level": "MEDIUM",
-        "risk_score": 62,
-        "summary": "The image background contains location clues that could narrow the subject to a neighborhood or repeated route even without GPS metadata.",
+        "risk_level": "HIGH",
+        "risk_score": 78,
+        "summary": "Sensitive: the image contains identifiable or context-rich elements that could expose personal or location information.",
         "key_findings": [
-            "Street-facing buildings and neighborhood layout are visible behind the subject.",
-            "Distinctive storefronts, school markings, or road features could help geolocate the scene.",
-            "The image shows contextual clues that could be combined with social posts or map data.",
+            "A visible document or object contains identifiable or personal information.",
+            "Background or contextual elements may reveal location or identity clues.",
         ],
         "recommendations": [
-            "Crop or blur the background before sharing.",
-            "Remove frames that reveal address ranges, business names, school logos, or recurring routes.",
+            "Crop or blur sensitive objects before sharing.",
+            "Avoid sharing images with identifiable documents or location clues.",
         ],
-        "exposed_elements": ["street layout", "storefront signage", "neighborhood houses"],
-        "attacker_simulation": "An attacker could compare the visible street layout and buildings with online maps, social posts, or local listings to narrow the photo to a specific neighborhood and connect it back to the subject.",
+        "exposed_elements": ["driver's license", "face photo", "location landmark"],
+        "attacker_simulation": "An attacker could extract identity details from the document and combine it with visible context to identify or target the individual."
     }
 
     return (
-        "You are auditing the visible privacy risk in an uploaded image.\n"
-        "Return strict JSON only. No markdown. No explanation outside the schema.\n"
-        "Look for visible clues that may leak sensitive information about a person or their location.\n"
-        "Focus on backgrounds, neighborhoods, buildings, storefronts, house numbers, street signs, school or workplace logos, ID badges, documents, mail, license plates, screens, and recurring routines.\n"
-        "Do not identify a person or guess exact addresses. Describe only visible risk signals and what they could reveal in general terms.\n"
-        "If the scene looks harmless or too ambiguous, say so briefly instead of inventing details.\n"
+        "You are auditing the visual security and privacy risk of an image.\n"
+        "Return strict JSON only. No markdown. No extra text.\n\n"
+
+        "Step 1: Briefly describe the image (1 sentence).\n"
+        "Step 2: Classify it as Sensitive or Non-sensitive.\n\n"
+
+        "SENSITIVITY PRIORITY RULE:\n"
+        "- Some categories are higher confidence than others.\n"
+        "- Always prioritize in this order when deciding Sensitive vs Non-sensitive:\n\n"
+
+        "1. Documents / Screens / Readable Text (highest confidence)\n"
+        "2. Identity signals (faces, IDs, badges, uniforms)\n"
+        "3. Location signals (landmarks, signs, unique places)\n"
+        "4. Security features (cameras, locks, entry points)\n"
+        "5. Contextual inference (environment clues, routines)\n"
+        "6. General objects (lowest confidence)\n\n"
+
+        "- If higher priority categories are not clearly present, do NOT upgrade sensitivity based on lower-level cues alone.\n\n"
+
+        "CRITICAL RULES:\n"
+        "- ALWAYS prioritize identifying sensitive objects over describing the background.\n"
+        "- If a document (license, ID, passport, badge, screen) is visible, you MUST classify the image as Sensitive.\n"
+        "- If identifiable landmarks, street signs, license plates, or unique locations are visible, treat as Sensitive.\n"
+        "- If a person, face, or identifying feature is visible, consider it potentially Sensitive.\n"
+        "- Do NOT ignore obvious objects and describe only the environment.\n"
+        "- Only classify as Sensitive when there is clear visual evidence.\n"
+        "- If uncertain between Sensitive and Non-sensitive:\n"
+        "    -- Choose Sensitive ONLY if there is at least one clearly visible high-confidence signal (document, face, readable text, or recognizable landmark).\n"
+        "    -- Otherwise choose Non-sensitive.\n"
+        "- Never invent or assume the presence of documents or sensitive objects.\n\n"
+
+        "Sensitive includes:\n"
+        "- Personal documents (IDs, licenses, passports)\n"
+        "- Screens, badges, or printed information\n"
+        "- Faces or identifiable individuals\n"
+        "- Location clues (landmarks, signs, buildings, unique environments)\n"
+        "- Security features (cameras, entrances, layouts)\n\n"
+
+        "If Sensitive:\n"
+        "- Identify the sensitive elements\n"
+        "- Describe what type of information is visible (NOT exact values)\n"
+        "- Explain why it is sensitive\n"
+        "- Briefly explain how it could be misused\n\n"
+
+        "If Non-sensitive:\n"
+        "- Describe what is shown briefly\n"
+        "- State clearly: 'This image contains no sensitive or exploitable information and is considered safe.'\n\n"
+
+        "IMPORTANT:\n"
+        "- Be specific (e.g., 'driver's license', NOT 'object')\n"
+        "- Do NOT use vague phrases like 'unidentified object' or 'background'\n"
+        "- If nothing sensitive is clearly visible, return empty exposed_elements\n\n"
+
+        "STRICT ACCURACY RULES:\n"
+        "- Only identify sensitive objects if they are clearly and confidently visible in the image.\n"
+        "- Do NOT assume or hallucinate objects that are not present.\n"
+        "- Do NOT guess documents (e.g., driver's license, ID) unless the structure, layout, or features clearly match one.\n"
+        "- If uncertain, classify as Non-sensitive instead of guessing.\n\n"
+
+        "LOCATION SENSITIVITY RULES:\n"
+        "- If a well-known or recognizable landmark is visible (e.g., Eiffel Tower, famous buildings, unique structures), treat it as Sensitive because it reveals location.\n"
+        "- If the image allows someone to infer where the photo was taken (city, country, or specific place), it is Sensitive.\n"
+        "- If a person is present near a recognizable landmark, this increases sensitivity because it links identity to location.\n"
+        "- Generic nature scenes (trees, fields, sky) without identifiable features are Non-sensitive.\n\n"
+
+        "DIGITAL EXPOSURE RULES:\n"
+        "- If a screen (phone, laptop, monitor) is visible and shows readable content, treat as Sensitive.\n"
+        "- Includes messages, emails, dashboards, code, QR codes, or login pages.\n"
+        "- Even partial visibility can expose sensitive workflows or data.\n\n"
+
+        "TEXT VISIBILITY RULES:\n"
+        "- If readable text is present (signs, papers, whiteboards, labels), evaluate it for sensitive information.\n"
+        "- Addresses, names, schedules, or instructions should be treated as Sensitive.\n"
+        "- Generic or unreadable text can be treated as Non-sensitive.\n\n"
+
+        "IDENTITY LINKING RULES:\n"
+        "- If a person is visible and can be linked to a location, object, or activity, treat as Sensitive.\n"
+        "- Faces, uniforms, badges, or distinctive appearance increase sensitivity.\n"
+        "- A person alone in a neutral setting may be lower risk.\n\n"
+
+        "PRIVATE ENVIRONMENT RULES:\n"
+        "- Indoor environments such as homes, offices, or personal spaces may be Sensitive.\n"
+        "- Layout, furniture, or unique items can reveal lifestyle, habits, or location.\n"
+        "- Treat as Sensitive if the space appears personal or identifiable.\n\n"
+
+        "SECURITY FEATURE RULES:\n"
+        "- Visible security elements (cameras, locks, keypads, entry points) should be treated as Sensitive.\n"
+        "- These can reveal vulnerabilities or access methods.\n\n"
+
+        "VALUABLE ASSET RULES:\n"
+        "- Expensive or high-value items (electronics, vehicles, equipment) can be Sensitive.\n"
+        "- These may attract targeting or theft if location is inferred.\n\n"
+
+        "CONTEXTUAL CLUE RULES:\n"
+        "- Repeated patterns, unique objects, or environment details can act as indirect identifiers.\n"
+        "- Treat as Sensitive if they could help correlate identity across images.\n\n"
+
+        "FINAL DECISION RULE:\n"
+        "- Classify as Sensitive only if at least ONE HIGH-CONFIDENCE category is clearly visible:"
+        "(documents, screens, faces, recognizable landmarks, readable text)\n"
+        "- Otherwise classify as Non-sensitive.\n\n"
+
         "Schema example:\n"
         f"{json.dumps(example, ensure_ascii=False)}"
     )
@@ -517,6 +612,62 @@ def sanitize_visual_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not attacker_simulation:
         attacker_simulation = "An attacker could combine visible context with public information to infer general location, identity, or routine."
+    # Post-filter: remove low-information or generic phrases that models sometimes emit
+    # and prefer conservative 'no-findings' when nothing specific is identifiable.
+    low_info_tokens = (
+        'unidentified', 'unidentified background', 'background',
+        'generic', 'unidentified object', 'unidentified object in background', 'unknown', 'indistinct'
+    )
+
+    def is_low_info(text: str) -> bool:
+        if not text:
+            return True
+        lowered = text.lower().strip()
+        for tok in low_info_tokens:
+            if tok in lowered:
+                return True
+        return False
+
+    # Filter exposed_elements and key_findings
+    filtered_exposed: list[str] = [e for e in exposed_elements if not is_low_info(e)]
+    filtered_key_findings: list[str] = [k for k in key_findings if not is_low_info(k)]
+
+    if not filtered_exposed:
+        # No specific exposed elements identified
+        filtered_exposed = []
+
+        # Prefer the model's summary if it's informative, otherwise give a conservative safe explanation.
+        informative_summary = ''
+        if summary and not is_low_info(summary) and 'no visible' not in summary.lower() and 'no specific' not in summary.lower():
+            informative_summary = compact_text(summary, 140)
+
+        safe_tail = "This image contains no sensitive or exploitable information and is considered safe."
+
+        if informative_summary:
+            if safe_tail.lower() in informative_summary.lower():
+                summary = informative_summary
+            else:
+                summary = f"{informative_summary} {safe_tail}" if informative_summary.endswith(('.', '!', '?')) else f"{informative_summary}. {safe_tail}"
+        else:
+            summary = "The image shows visible content without identifiable sensitive details. This image contains no sensitive or exploitable information and is considered safe."
+
+        # Visual Risk should be explicit when nothing sensitive is found
+        filtered_key_findings = ["No visible sensitive elements found."]
+
+    else:
+        # If there are exposed elements, ensure key findings summarize them if missing
+        if not filtered_key_findings:
+            filtered_key_findings = [f"Visible elements of interest: {', '.join(filtered_exposed[:3])}"]
+
+        # Keep the model summary if it's informative; otherwise build a short one from exposed elements
+        if not summary or is_low_info(summary):
+            summary = f"Sensitive: visible elements include {', '.join(filtered_exposed[:3])}. Briefly describe what is present, why it is sensitive, and how it could be misused."
+        elif not summary.lower().startswith(("sensitive:", "non-sensitive:")):
+            summary = f"Sensitive: {summary}"
+
+    # Use the filtered lists for return
+    exposed_elements = filtered_exposed
+    key_findings = filtered_key_findings
 
     return {
         "risk_level": risk_level,

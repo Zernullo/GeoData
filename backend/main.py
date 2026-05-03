@@ -8,6 +8,7 @@ The API is intentionally staged for responsiveness:
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import time
@@ -16,7 +17,9 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from PIL import Image
 
 from extract_exif import analyze_image, extract_exif
 from local_LLM import (
@@ -224,6 +227,27 @@ async def save_upload(file: UploadFile) -> Path:
         output_file.write(contents)
 
     return target_path
+
+
+@app.post("/api/preview-image")
+async def preview_image(file: UploadFile = File(...)) -> StreamingResponse:
+    try:
+        source_image = Image.open(file.file)
+        source_image.load()
+    except Exception as exc:  # pragma: no cover - file parsing guard
+        raise HTTPException(status_code=400, detail=f"Unable to read image: {exc}") from exc
+
+    preview_image = source_image.convert("RGBA") if source_image.mode not in ("RGB", "L", "RGBA") else source_image.copy()
+
+    buffer = io.BytesIO()
+    preview_image.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="image/png",
+        headers={"Content-Disposition": f'inline; filename="preview-{safe_filename(file.filename)}.png"'},
+    )
 
 
 def truncate_exif_data(exif_dict: dict[str, Any], max_fields: int | None = None) -> dict[str, Any]:

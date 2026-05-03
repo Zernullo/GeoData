@@ -8,6 +8,7 @@ export const API_ENDPOINTS = {
   extract: `${API_BASE_URL}/api/extract-exif-json`,
   analyze: `${API_BASE_URL}/api/analyze-exif`,
   sanitize: `${API_BASE_URL}/api/sanitize-image`,
+  preview: `${API_BASE_URL}/api/preview-image`,
   llmHealth: `${API_BASE_URL}/api/health/llm`,
 } as const;
 

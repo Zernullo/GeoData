@@ -3,13 +3,13 @@
  */
 
 import type { ExifData } from '../types/exif';
-import { FILE_LIMITS } from '../constants/config';
+import { API_ENDPOINTS, FILE_LIMITS } from '../constants/config';
 
 export const isExifData = (data: unknown): data is ExifData => {
   return typeof data === 'object' && data !== null;
 };
 
-export const compressPreview = (file: File, maxSize: number = 200): Promise<string> => {
+const buildCanvasPreview = (file: File, maxSize: number): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -55,6 +55,31 @@ export const compressPreview = (file: File, maxSize: number = 200): Promise<stri
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
+};
+
+const buildBackendPreview = async (file: File): Promise<string> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(API_ENDPOINTS.preview, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Preview generation failed with HTTP ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+};
+
+export const compressPreview = async (file: File, maxSize: number = 200): Promise<string> => {
+  try {
+    return await buildCanvasPreview(file, maxSize);
+  } catch {
+    return buildBackendPreview(file);
+  }
 };
 
 export const validateImageFile = (file: File): { valid: boolean; error?: string } => {

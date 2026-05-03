@@ -69,6 +69,7 @@ export default function ImageUploader() {
   const [error, setError] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -79,6 +80,15 @@ export default function ImageUploader() {
   const { logs, addLog, clearLogs } = useTerminalLog(UI_CONFIG.maxLogEntries);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeScanIdRef = useRef(0);
+  const activeHistoryIdRef = useRef<string | null>(null);
+  const activeHistoryBaseRef = useRef<{
+    id: string;
+    timestamp: string;
+    fileName: string;
+    preview: string;
+    hasGPS: boolean;
+    tagCount: number;
+  } | null>(null);
 
   const resetAnalysisState = useCallback(() => {
     setLlmAnalysis(null);
@@ -137,6 +147,14 @@ export default function ImageUploader() {
       active = false;
     };
   }, [addLog]);
+
+  useEffect(() => {
+    return () => {
+      if (preview?.startsWith('blob:')) {
+        URL.revokeObjectURL(preview);
+      }
+    };
+  }, [preview]);
 
   const downloadJSON = useCallback(() => {
     if (!result) return;
@@ -317,14 +335,20 @@ export default function ImageUploader() {
         addLog('High-risk location metadata detected', 'warning');
       }
 
-      addToHistory({
-        id: crypto.randomUUID(),
+      const completedHistoryEntry = {
+        id: activeHistoryIdRef.current ?? crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         fileName: file.name,
-        preview: preview || '',
+        preview: preview || activeHistoryBaseRef.current?.preview || '',
         hasGPS: !!exifData.GPSLatitude,
         tagCount: count,
+      };
+
+      addToHistory({
+        ...completedHistoryEntry,
       });
+
+      activeHistoryBaseRef.current = completedHistoryEntry;
 
       setRetryCount(0);
       void runDeepAnalysis(exifData, data.data.image_path ?? null, 'auto', scanId);
@@ -396,25 +420,56 @@ export default function ImageUploader() {
     }
 
     activeScanIdRef.current += 1;
+    const historyId = crypto.randomUUID();
+    const historyTimestamp = new Date().toISOString();
+    activeHistoryIdRef.current = historyId;
+    activeHistoryBaseRef.current = {
+      id: historyId,
+      timestamp: historyTimestamp,
+      fileName: selectedFile.name,
+      preview: '',
+      hasGPS: false,
+      tagCount: 0,
+    };
 
     setFile(selectedFile);
     setResult(null);
     setPipeline(null);
     resetAnalysisState();
     setError(null);
+    setPreview(null);
+    setPreviewLoading(true);
 
     addLog(`Loaded ${selectedFile.name}`, 'success');
     addLog(`File size ${(selectedFile.size / 1024).toFixed(1)} KB`, 'info');
+    addToHistory(activeHistoryBaseRef.current);
 
     try {
       const compressedPreview = await compressPreview(selectedFile, UI_CONFIG.previewMaxSize);
+      if (activeHistoryIdRef.current !== historyId) {
+        return;
+      }
+
       setPreview(compressedPreview);
+      setPreviewLoading(false);
+      if (activeHistoryBaseRef.current?.id === historyId) {
+        activeHistoryBaseRef.current = {
+          ...activeHistoryBaseRef.current,
+          preview: compressedPreview,
+        };
+        addToHistory(activeHistoryBaseRef.current);
+      }
       addLog('Preview ready', 'success');
     } catch {
+      if (activeHistoryIdRef.current !== historyId) {
+        return;
+      }
+
       setPreview(null);
+      setPreviewLoading(false);
       addLog('Preview unavailable, continuing without thumbnail', 'warning');
     }
-  }, [addLog, resetAnalysisState]);
+  }, [addLog, addToHistory, resetAnalysisState]);
 
   const primaryActionLabel = extracting ? '[ SCANNING IMAGE... ]' : '[ START SCAN ]';
   const canRunDeepAnalysis = result
@@ -433,6 +488,7 @@ export default function ImageUploader() {
           <UploadZone
             file={file}
             preview={preview}
+            previewLoading={previewLoading}
             dragOver={dragOver}
             onDragOver={() => setDragOver(true)}
             onDragLeave={() => setDragOver(false)}

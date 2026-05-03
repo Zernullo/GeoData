@@ -5,6 +5,7 @@
 interface UploadZoneProps {
   file: File | null;
   preview: string | null;
+  previewLoading: boolean;
   dragOver: boolean;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
@@ -16,6 +17,7 @@ interface UploadZoneProps {
 export function UploadZone({
   file,
   preview,
+  previewLoading,
   dragOver,
   onDragOver,
   onDragLeave,
@@ -56,6 +58,26 @@ export function UploadZone({
               <h3 className="upload-title">{file?.name}</h3>
               <p className="upload-meta">
                 {file ? `${(file.size / 1024).toFixed(1)} KB` : ''} - Click anywhere to replace the file
+              </p>
+            </div>
+          </>
+        ) : file ? (
+          <>
+            <div className="preview-frame flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-xs uppercase tracking-[0.3em] text-dark-muted">
+                  {previewLoading ? 'Preparing preview' : 'Preview pending'}
+                </div>
+                <div className="mt-2 text-sm text-dark-text font-mono break-all px-3">
+                  {file.name}
+                </div>
+              </div>
+            </div>
+            <div className="upload-copy">
+              <p className="label-text mb-2">Selected image</p>
+              <h3 className="upload-title">{file.name}</h3>
+              <p className="upload-meta">
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : ''} - {previewLoading ? 'Preview is being prepared' : 'Click anywhere to replace the file'}
               </p>
             </div>
           </>
